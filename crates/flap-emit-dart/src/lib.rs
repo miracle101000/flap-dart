@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use flap_ir::{
-    Api, ApiKeyLocation, Field, HttpMethod, Operation, ParameterLocation, RequestBody, Response,
-    Schema, SchemaKind, SecurityScheme, TypeRef,
+    Api, ApiKeyLocation, Field, Operation, ParameterLocation, RequestBody, Response, Schema,
+    SchemaKind, SecurityScheme, TypeRef,
 };
 
 // ── Identifier policy ────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ fn build_model_ctx(
     schema: &Schema,
     class_name: &str,
     registry: &EnumRegistry,
-    schemas: &[Schema],
+    _schemas: &[Schema],
     mode: NullSafety,
     mappings: &MappingConfig,
 ) -> ModelTemplateCtx {
@@ -614,11 +614,11 @@ impl EnumRegistry {
         self.body_enums.get(op_id).map(String::as_str)
     }
 
-    fn lookup_response(&self, op_id: &str, status_code: &str) -> Option<&str> {
-        self.response_enums
-            .get(&(op_id.to_string(), status_code.to_string()))
-            .map(String::as_str)
-    }
+    // fn lookup_response(&self, op_id: &str, status_code: &str) -> Option<&str> {
+    //     self.response_enums
+    //         .get(&(op_id.to_string(), status_code.to_string()))
+    //         .map(String::as_str)
+    // }
 }
 
 // ── Public entry point: models ────────────────────────────────────────────────
@@ -1139,6 +1139,7 @@ fn collect_field_imports(
 
 // ── @Freezed union ────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn emit_freezed_union(
     class_name: &str,
     _schema_name: &str,
@@ -2331,6 +2332,7 @@ fn header_deserialize_expr_nullable(type_ref: &TypeRef, raw_var: &str) -> String
     }
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn deserialize_expr(
     type_ref: &TypeRef,
     schemas: &[Schema],

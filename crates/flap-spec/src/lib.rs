@@ -2220,7 +2220,7 @@ fn lower_swagger_inline_type(
 fn lower_swagger_schema_or_ref(
     sor: &SwaggerSchemaOrRef,
     definitions: &BTreeMap<String, SwaggerSchemaOrRef>,
-    visiting: &HashSet<String>,
+    _visiting: &HashSet<String>,
 ) -> Result<TypeRef> {
     match sor {
         SwaggerSchemaOrRef::Ref { reference } => {
