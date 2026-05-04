@@ -56,13 +56,17 @@ fn main() -> ExitCode {
     }
 
     let backend_label = match backend {
-        ClientBackend::Dio  => "dio",
+        ClientBackend::Dio => "dio",
         ClientBackend::Http => "http",
     };
     println!("client backend : {backend_label}");
     if !mappings.is_empty() {
-        for (k, v) in &mappings.type_map   { println!("  type-map     : {k} → {v}"); }
-        for (k, v) in &mappings.import_map { println!("  import-map   : {k} → {v}"); }
+        for (k, v) in &mappings.type_map {
+            println!("  type-map     : {k} → {v}");
+        }
+        for (k, v) in &mappings.import_map {
+            println!("  import-map   : {k} → {v}");
+        }
     }
     if let Some(dir) = &templates.template_dir {
         println!("template dir   : {}", dir.display());
@@ -87,7 +91,7 @@ fn main() -> ExitCode {
         let subdir_name = spec_to_dir_name(spec);
 
         for (mode, suffix) in [
-            (NullSafety::Safe,   "null_safe"),
+            (NullSafety::Safe, "null_safe"),
             (NullSafety::Unsafe, "null_unsafe"),
         ] {
             let spec_out = out_dir.join(&subdir_name);
@@ -148,14 +152,28 @@ fn main() -> ExitCode {
         }
     }
 
-    if any_failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+    if any_failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Parse `--out <dir> [--force] [--client=dio|http] <spec> [<spec> ...]`.
 fn parse_args(
     args: &[String],
-) -> Result<(PathBuf, Vec<String>, bool, ClientBackend, MappingConfig, TemplateConfig), String> {
+) -> Result<
+    (
+        PathBuf,
+        Vec<String>,
+        bool,
+        ClientBackend,
+        MappingConfig,
+        TemplateConfig,
+    ),
+    String,
+> {
     let mut out_dir: Option<PathBuf> = None;
     let mut specs: Vec<String> = Vec::new();
     let mut force = false;
@@ -179,24 +197,30 @@ fn parse_args(
             "--force" | "-f" => {
                 force = true;
             }
-            "--client=dio" => { backend = ClientBackend::Dio; }
-            "--client=http" => { backend = ClientBackend::Http; }
+            "--client=dio" => {
+                backend = ClientBackend::Dio;
+            }
+            "--client=http" => {
+                backend = ClientBackend::Http;
+            }
             arg if arg.starts_with("--client=") => {
                 let val = &arg["--client=".len()..];
-                return Err(format!("unknown client backend `{val}` — expected `dio` or `http`"));
+                return Err(format!(
+                    "unknown client backend `{val}` — expected `dio` or `http`"
+                ));
             }
             arg if arg.starts_with("--type-map=") => {
                 let pair = &arg["--type-map=".len()..];
-                let (k, v) = pair.split_once('=').ok_or_else(|| {
-                    format!("--type-map requires KEY=VALUE, got `{pair}`")
-                })?;
+                let (k, v) = pair
+                    .split_once('=')
+                    .ok_or_else(|| format!("--type-map requires KEY=VALUE, got `{pair}`"))?;
                 mappings.type_map.insert(k.to_string(), v.to_string());
             }
             arg if arg.starts_with("--import-map=") => {
                 let pair = &arg["--import-map=".len()..];
-                let (k, v) = pair.split_once('=').ok_or_else(|| {
-                    format!("--import-map requires KEY=VALUE, got `{pair}`")
-                })?;
+                let (k, v) = pair
+                    .split_once('=')
+                    .ok_or_else(|| format!("--import-map requires KEY=VALUE, got `{pair}`"))?;
                 mappings.import_map.insert(k.to_string(), v.to_string());
             }
             "--template-dir" | "-t" => {
@@ -209,7 +233,9 @@ fn parse_args(
             arg if arg.starts_with("--template-dir=") => {
                 templates.template_dir = Some(PathBuf::from(&arg["--template-dir=".len()..]));
             }
-            other => { specs.push(other.to_string()); }
+            other => {
+                specs.push(other.to_string());
+            }
         }
         i += 1;
     }
@@ -237,19 +263,30 @@ fn local_fingerprint(
         return None;
     }
     let meta = std::fs::metadata(spec).ok()?;
-    let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs();
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs();
     let size = meta.len();
 
     let backend_tag = match backend {
-        ClientBackend::Dio  => "dio",
+        ClientBackend::Dio => "dio",
         ClientBackend::Http => "http",
     };
 
-    let mut type_pairs: Vec<String> =
-        mappings.type_map.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut type_pairs: Vec<String> = mappings
+        .type_map
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
     type_pairs.sort();
-    let mut import_pairs: Vec<String> =
-        mappings.import_map.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut import_pairs: Vec<String> = mappings
+        .import_map
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
     import_pairs.sort();
     let mappings_tag = format!("t:[{}]i:[{}]", type_pairs.join(","), import_pairs.join(","));
 
@@ -261,7 +298,9 @@ fn local_fingerprint(
                 let path = entry.path();
                 if path.is_file() {
                     if let (Some(name), Ok(content)) = (
-                        path.file_name().and_then(|n| n.to_str()).map(str::to_string),
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(str::to_string),
                         std::fs::read_to_string(&path),
                     ) {
                         entries.push((name, content));

@@ -242,7 +242,8 @@ fn render_jinja(template_src: &str, context: impl serde::Serialize) -> Result<St
         .map_err(|e| format!("template parse error: {e}"))?;
     let tmpl = env.get_template("t").unwrap();
     let ctx = minijinja::Value::from_serialize(&context);
-    tmpl.render(ctx).map_err(|e| format!("template render error: {e}"))
+    tmpl.render(ctx)
+        .map_err(|e| format!("template render error: {e}"))
 }
 
 // ── Context builders ──────────────────────────────────────────────────────────
@@ -256,7 +257,12 @@ fn build_model_ctx(
     mappings: &MappingConfig,
 ) -> ModelTemplateCtx {
     let snake_name = to_snake_case(class_name);
-    let null_safety = if mode == NullSafety::Safe { "safe" } else { "unsafe" }.to_string();
+    let null_safety = if mode == NullSafety::Safe {
+        "safe"
+    } else {
+        "unsafe"
+    }
+    .to_string();
 
     let fields = match &schema.kind {
         SchemaKind::Object { fields } => fields
@@ -266,14 +272,21 @@ fn build_model_ctx(
         _ => vec![],
     };
 
-    let has_optional_fields = fields.iter().any(|f: &FieldTemplateCtx| f.uses_optional_wrapper);
+    let has_optional_fields = fields
+        .iter()
+        .any(|f: &FieldTemplateCtx| f.uses_optional_wrapper);
 
     let mut imports: Vec<String> = Vec::new();
     if let SchemaKind::Object { fields } = &schema.kind {
         for field in fields {
             collect_field_imports(
-                &field.type_ref, &field.name, &schema.name, class_name,
-                registry, &mut imports, mappings,
+                &field.type_ref,
+                &field.name,
+                &schema.name,
+                class_name,
+                registry,
+                &mut imports,
+                mappings,
             );
         }
     }
@@ -315,10 +328,7 @@ fn build_field_ctx(
         dart_type
     };
 
-    let default_expr = field
-        .default_value
-        .as_ref()
-        .map(dart_default_expr);
+    let default_expr = field.default_value.as_ref().map(dart_default_expr);
 
     let json_name = if dart_name != field.name {
         Some(field.name.clone())
@@ -346,9 +356,14 @@ fn build_client_ctx(
     backend: ClientBackend,
     mappings: &MappingConfig,
 ) -> ClientTemplateCtx {
-    let null_safety = if mode == NullSafety::Safe { "safe" } else { "unsafe" }.to_string();
+    let null_safety = if mode == NullSafety::Safe {
+        "safe"
+    } else {
+        "unsafe"
+    }
+    .to_string();
     let backend_str = match backend {
-        ClientBackend::Dio  => "dio",
+        ClientBackend::Dio => "dio",
         ClientBackend::Http => "http",
     }
     .to_string();
@@ -361,10 +376,10 @@ fn build_client_ctx(
         .map(|s| CredentialTemplateCtx {
             dart_param_name: escape_dart_keyword(&to_camel_case(s.scheme_name())),
             scheme_type: match s {
-                SecurityScheme::ApiKey { .. }      => "apiKey",
-                SecurityScheme::HttpBasic { .. }   => "httpBasic",
-                SecurityScheme::HttpBearer { .. }  => "httpBearer",
-                SecurityScheme::OAuth2 { .. }      => "oauth2",
+                SecurityScheme::ApiKey { .. } => "apiKey",
+                SecurityScheme::HttpBasic { .. } => "httpBasic",
+                SecurityScheme::HttpBearer { .. } => "httpBearer",
+                SecurityScheme::OAuth2 { .. } => "oauth2",
                 SecurityScheme::OpenIdConnect { .. } => "openIdConnect",
             }
             .to_string(),
@@ -628,8 +643,12 @@ pub fn emit_models(
     let model_jinja = templates.jinja("model.dart");
 
     for schema in &api.schemas {
-        if schema.internal { continue; }
-        if mappings.type_map.contains_key(&schema.name) { continue; }
+        if schema.internal {
+            continue;
+        }
+        if mappings.type_map.contains_key(&schema.name) {
+            continue;
+        }
 
         let class_name = mappings.resolve_class(&schema.name);
         let filename = format!("{}.dart", to_snake_case(&class_name));
@@ -694,15 +713,19 @@ pub fn emit_client(
                 eprintln!("warning: client.dart.jinja render error: {e}");
                 // Fall through to built-in on render error.
                 match backend {
-                    ClientBackend::Dio  => emit_client_dio(api, &class_name, &registry, mode, mappings),
-                    ClientBackend::Http => emit_client_http(api, &class_name, &registry, mode, mappings),
+                    ClientBackend::Dio => {
+                        emit_client_dio(api, &class_name, &registry, mode, mappings)
+                    }
+                    ClientBackend::Http => {
+                        emit_client_http(api, &class_name, &registry, mode, mappings)
+                    }
                 }
             }
         }
     } else {
         // 3. Built-in emitter.
         match backend {
-            ClientBackend::Dio  => emit_client_dio(api, &class_name, &registry, mode, mappings),
+            ClientBackend::Dio => emit_client_dio(api, &class_name, &registry, mode, mappings),
             ClientBackend::Http => emit_client_http(api, &class_name, &registry, mode, mappings),
         }
     };
