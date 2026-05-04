@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # needed to create the GitHub Release and upload assets
+  id-token: write   # needed for pub.dev OIDC publishing
+
+jobs:
+  # ── Build native binaries for every supported platform ─────────────────────
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: flap-linux-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: flap-macos-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: flap-macos-arm64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: flap-windows-x64
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Build (release)
+        run: cargo build --release --bin generate_dart --target ${{ matrix.target }}
+
+      # ── Package into an archive ─────────────────────────────────────────────
+      - name: Package binary (Unix)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          cp target/${{ matrix.target }}/release/generate_dart flap
+          tar -czf ${{ matrix.asset_name }}.tar.gz flap
+          sha256sum ${{ matrix.asset_name }}.tar.gz > ${{ matrix.asset_name }}.tar.gz.sha256
+          echo "ASSET_PATH=${{ matrix.asset_name }}.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=${{ matrix.asset_name }}.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: Package binary (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          Copy-Item "target/${{ matrix.target }}/release/generate_dart.exe" "flap.exe"
+          Compress-Archive -Path "flap.exe" -DestinationPath "${{ matrix.asset_name }}.zip"
+          $hash = (Get-FileHash "${{ matrix.asset_name }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.asset_name }}.zip" | Out-File -Encoding ASCII "${{ matrix.asset_name }}.zip.sha256"
+          echo "ASSET_PATH=${{ matrix.asset_name }}.zip" | Out-File -Append -Encoding ASCII $env:GITHUB_ENV
+          echo "CHECKSUM_PATH=${{ matrix.asset_name }}.zip.sha256" | Out-File -Append -Encoding ASCII $env:GITHUB_ENV
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ env.ASSET_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+
+  # ── Create the GitHub Release and attach all archives ─────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true
+
+  # ── Publish to pub.dev ─────────────────────────────────────────────────────
+  publish:
+    name: Publish to pub.dev
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Validate package
+        run: |
+          dart pub publish --dry-run
+          dart analyze
+
+      - name: Publish
+        run: dart pub publish --force

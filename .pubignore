@@ -1,0 +1,25 @@
+# ── Rust workspace ────────────────────────────────────────────────────────────
+# The Rust source lives alongside the Dart package in the same repo but must
+# not be included in the pub.dev upload (size limit + irrelevant to consumers).
+target/
+crates/
+src/
+Cargo.toml
+Cargo.lock
+
+# ── Tests and fixtures ────────────────────────────────────────────────────────
+tests/
+
+# ── Editor / IDE config ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+
+# ── CI / GitHub ───────────────────────────────────────────────────────────────
+.github/
+.circleci/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.gitignore
+.gitattributes
+*.orig

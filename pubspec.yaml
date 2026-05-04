@@ -1,0 +1,38 @@
+name: flap
+description: >-
+  Fast, zero-dependency OpenAPI → Dart/Flutter client generator. Lowers
+  OpenAPI 3.0, 3.1, and Swagger 2.0 specs into idiomatic Dart/Flutter
+  clients using Freezed + json_serializable — no Java required.
+version: 0.0.1
+repository: https://github.com/your-org/flap
+issue_tracker: https://github.com/your-org/flap/issues
+documentation: https://github.com/your-org/flap#readme
+
+topics:
+  - code-generation
+  - openapi
+  - flutter
+  - dart
+  - rest-api
+
+screenshots:
+  - description: Generating a Dart client from the Petstore spec
+    path: doc/screenshot_generate.png
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+# Activated via: dart pub global activate flap
+# Usage:         flap --out ./sdks path/to/spec.yaml
+executables:
+  flap: flap
+
+dependencies:
+  archive: ^3.6.0
+  crypto: ^3.0.3
+  http: ^1.2.0
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.25.0
