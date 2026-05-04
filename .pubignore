@@ -1,7 +1,7 @@
 # Rust workspace
 target/
 crates/
-src/
+/src/
 Cargo.toml
 Cargo.lock
 
