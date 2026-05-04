@@ -8,7 +8,7 @@ String get platformSlug {
   throw UnsupportedError(
     'flap does not publish pre-built binaries for '
     '"${Platform.operatingSystem}".\n'
-    'Build from source: https://github.com/your-org/flap#prerequisites',
+    'Build from source: https://github.com/miracle101000/flap-dart#prerequisites',
   );
 }
 

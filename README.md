@@ -47,7 +47,7 @@ On first run, `flap` downloads the pre-built Rust binary for your platform and c
 Requires the [Rust toolchain](https://rustup.rs) (stable).
 
 ```sh
-git clone https://github.com/your-org/flap
+git clone https://github.com/miracle101000/flap-dart
 cd flap
 cargo build --release --bin generate_dart
 ```
