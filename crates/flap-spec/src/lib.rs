@@ -625,12 +625,12 @@ fn validate_swagger_spec(spec: &SwaggerSpec) -> Result<()> {
             item.head.as_ref(),
         ];
         for op in ops.into_iter().flatten() {
-            if let Some(id) = &op.operation_id {
-                if let Some(prev) = seen_ids.insert(id.as_str(), path.as_str()) {
-                    d.error(format!(
-                        "operationId `{id}` is used by both `{prev}` and `{path}`"
-                    ));
-                }
+            if let Some(id) = &op.operation_id
+                && let Some(prev) = seen_ids.insert(id.as_str(), path.as_str())
+            {
+                d.error(format!(
+                    "operationId `{id}` is used by both `{prev}` and `{path}`"
+                ));
             }
         }
     }
