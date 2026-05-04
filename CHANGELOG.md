@@ -34,3 +34,7 @@ All notable changes to this project will be documented in this file.
 ## 0.0.3
 
 * Fixing pub points
+
+## 0.0.4
+
+* Fixing pub points
