@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use flap_ir::{
     Api, ApiKeyLocation, Field, Operation, ParameterLocation, RequestBody, Response, Schema,
-    SchemaKind, SecurityScheme, TypeRef,
+    SchemaKind, SecurityScheme, SecuritySchemeKind, TypeRef,
 };
 
 // ── Identifier policy ────────────────────────────────────────────────────────
@@ -374,13 +374,13 @@ fn build_client_ctx(
         .security_schemes
         .iter()
         .map(|s| CredentialTemplateCtx {
-            dart_param_name: escape_dart_keyword(&to_camel_case(s.scheme_name())),
-            scheme_type: match s {
-                SecurityScheme::ApiKey { .. } => "apiKey",
-                SecurityScheme::HttpBasic { .. } => "httpBasic",
-                SecurityScheme::HttpBearer { .. } => "httpBearer",
-                SecurityScheme::OAuth2 { .. } => "oauth2",
-                SecurityScheme::OpenIdConnect { .. } => "openIdConnect",
+            dart_param_name: escape_dart_keyword(&to_camel_case(&s.name)),
+            scheme_type: match &s.kind {
+                SecuritySchemeKind::ApiKey { .. } => "apiKey",
+                SecuritySchemeKind::HttpBasic => "httpBasic",
+                SecuritySchemeKind::HttpBearer { .. } => "httpBearer",
+                SecuritySchemeKind::OAuth2 { .. } => "oauth2",
+                SecuritySchemeKind::OpenIdConnect { .. } => "openIdConnect",
             }
             .to_string(),
         })
@@ -1493,20 +1493,19 @@ fn emit_constructor_dio(
 
 fn emit_credential_injection_dio(cred: &DartCredential) -> String {
     let dart = &cred.dart_param_name;
-    match cred.scheme {
-        SecurityScheme::HttpBasic { .. } => format!(
+    match &cred.scheme.kind {
+        SecuritySchemeKind::HttpBasic => format!(
             "          if ({dart} != null) {{\n            \
              final basic = 'Basic ${{base64Encode(utf8.encode({dart})))}}';\n            \
              options.headers['Authorization'] = basic;\n          }}\n"
         ),
-        SecurityScheme::HttpBearer { .. } => format!(
+        SecuritySchemeKind::HttpBearer { .. } => format!(
             "          if ({dart} != null) {{\n            \
              options.headers['Authorization'] = 'Bearer ${dart}';\n          }}\n"
         ),
-        SecurityScheme::ApiKey {
+        SecuritySchemeKind::ApiKey {
             parameter_name,
             location,
-            ..
         } => match location {
             ApiKeyLocation::Header => format!(
                 "          if ({dart} != null) {{\n            \
@@ -1523,7 +1522,7 @@ fn emit_credential_injection_dio(cred: &DartCredential) -> String {
                  options.headers['Cookie'] = existing == null ? cookie : '$existing; $cookie';\n          }}\n"
             ),
         },
-        SecurityScheme::OAuth2 { .. } | SecurityScheme::OpenIdConnect { .. } => format!(
+        SecuritySchemeKind::OAuth2 { .. } | SecuritySchemeKind::OpenIdConnect { .. } => format!(
             "          if ({dart} != null) {{\n            \
              options.headers['Authorization'] = 'Bearer ${{{dart}}}';\n          }}\n"
         ),
@@ -1905,19 +1904,18 @@ fn emit_constructor_http(
 
 fn emit_credential_header_http(cred: &DartCredential) -> String {
     let dart = &cred.dart_param_name;
-    match cred.scheme {
-        SecurityScheme::HttpBearer { .. } => {
+    match &cred.scheme.kind {
+        SecuritySchemeKind::HttpBearer { .. } => {
             format!("    if (_{dart} != null) 'Authorization': 'Bearer ${{_{dart}!}}',\n")
         }
-        SecurityScheme::HttpBasic { .. } => {
+        SecuritySchemeKind::HttpBasic => {
             format!(
                 "    if (_{dart} != null) 'Authorization': 'Basic ${{base64Encode(utf8.encode(_{dart}!))}}',\n"
             )
         }
-        SecurityScheme::ApiKey {
+        SecuritySchemeKind::ApiKey {
             parameter_name,
             location,
-            ..
         } => match location {
             ApiKeyLocation::Header => {
                 format!("    if (_{dart} != null) '{parameter_name}': _{dart}!,\n")
@@ -1925,7 +1923,7 @@ fn emit_credential_header_http(cred: &DartCredential) -> String {
             // Query and cookie auth are handled at the request level, not in headers
             _ => String::new(),
         },
-        SecurityScheme::OAuth2 { .. } | SecurityScheme::OpenIdConnect { .. } => {
+        SecuritySchemeKind::OAuth2 { .. } | SecuritySchemeKind::OpenIdConnect { .. } => {
             format!("    if (_{dart} != null) 'Authorization': 'Bearer ${{_{dart}!}}',\n")
         }
     }
@@ -2252,7 +2250,7 @@ impl<'a> DartCredential<'a> {
     fn from_scheme(scheme: &'a SecurityScheme) -> Self {
         Self {
             scheme,
-            dart_param_name: escape_dart_keyword(&to_camel_case(scheme.scheme_name())),
+            dart_param_name: escape_dart_keyword(&to_camel_case(&scheme.name)),
         }
     }
 }

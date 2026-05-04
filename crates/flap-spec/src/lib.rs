@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use flap_ir::{
     Api, ApiKeyLocation, EnumValue, ExtensionValue, Extensions, Field, HttpMethod, OAuth2Flow,
     OAuth2FlowType, Operation, Parameter, ParameterLocation, RequestBody, Response, Schema,
-    SchemaKind, SecurityScheme, TypeRef,
+    SchemaKind, SecurityScheme, SecuritySchemeKind, TypeRef,
 };
 use serde::Deserialize;
 
@@ -890,18 +890,22 @@ fn lower_security_scheme(name: &str, raw: &RawSecurityScheme) -> Result<Security
                      (expected `header`, `query`, or `cookie`)"
                 ),
             };
-            Ok(SecurityScheme::ApiKey {
-                scheme_name: name.to_string(),
-                parameter_name,
-                location,
+            Ok(SecurityScheme {
+                name: name.to_string(),
+                kind: SecuritySchemeKind::ApiKey {
+                    parameter_name,
+                    location,
+                },
             })
         }
         "http" => {
             let scheme = raw.scheme.as_deref().unwrap_or("");
             if scheme.eq_ignore_ascii_case("bearer") {
-                Ok(SecurityScheme::HttpBearer {
-                    scheme_name: name.to_string(),
-                    bearer_format: raw.bearer_format.clone(),
+                Ok(SecurityScheme {
+                    name: name.to_string(),
+                    kind: SecuritySchemeKind::HttpBearer {
+                        bearer_format: raw.bearer_format.clone(),
+                    },
                 })
             } else if scheme.is_empty() {
                 bail!("http security scheme is missing the required `scheme` field")
@@ -918,9 +922,9 @@ fn lower_security_scheme(name: &str, raw: &RawSecurityScheme) -> Result<Security
             })?;
             let flows = lower_oauth2_flows(name, raw_flows)
                 .with_context(|| format!("in oauth2 scheme `{name}`"))?;
-            Ok(SecurityScheme::OAuth2 {
-                scheme_name: name.to_string(),
-                flows,
+            Ok(SecurityScheme {
+                name: name.to_string(),
+                kind: SecuritySchemeKind::OAuth2 { flows },
             })
         }
         "openIdConnect" => {
@@ -930,9 +934,9 @@ fn lower_security_scheme(name: &str, raw: &RawSecurityScheme) -> Result<Security
                      the required `openIdConnectUrl` field"
                 )
             })?;
-            Ok(SecurityScheme::OpenIdConnect {
-                scheme_name: name.to_string(),
-                openid_connect_url,
+            Ok(SecurityScheme {
+                name: name.to_string(),
+                kind: SecuritySchemeKind::OpenIdConnect { openid_connect_url },
             })
         }
         other => bail!("unknown security scheme type `{other}`"),
@@ -1827,14 +1831,17 @@ fn lower_one_swagger_security(
                 Some("cookie") => ApiKeyLocation::Cookie,
                 other => bail!("invalid apiKey location: {:?}", other),
             };
-            Ok(SecurityScheme::ApiKey {
-                scheme_name: name.to_string(),
-                parameter_name,
-                location,
+            Ok(SecurityScheme {
+                name: name.to_string(),
+                kind: SecuritySchemeKind::ApiKey {
+                    parameter_name,
+                    location,
+                },
             })
         }
-        "basic" => Ok(SecurityScheme::HttpBasic {
-            scheme_name: name.to_string(),
+        "basic" => Ok(SecurityScheme {
+            name: name.to_string(),
+            kind: SecuritySchemeKind::HttpBasic,
         }),
         "oauth2" => {
             let flow = def.flow.as_deref().unwrap_or("implicit");
@@ -1851,9 +1858,9 @@ fn lower_one_swagger_security(
                 authorization_url: def.authorization_url.clone(),
                 scopes: def.scopes.keys().cloned().collect(),
             }];
-            Ok(SecurityScheme::OAuth2 {
-                scheme_name: name.to_string(),
-                flows,
+            Ok(SecurityScheme {
+                name: name.to_string(),
+                kind: SecuritySchemeKind::OAuth2 { flows },
             })
         }
         other => bail!("unsupported security type: {other}"),
