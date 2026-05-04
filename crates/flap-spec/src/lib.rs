@@ -199,8 +199,8 @@ struct RawPathItem {
     pub options: Option<RawOperation>,
     pub head: Option<RawOperation>,
     pub trace: Option<RawOperation>,
-    #[serde(flatten)]
-    pub extensions: BTreeMap<String, serde_yaml::Value>,
+    // #[serde(flatten)]
+    // pub extensions: BTreeMap<String, serde_yaml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -441,12 +441,12 @@ fn validate_raw_spec(raw: &RawSpec) -> Result<()> {
             item.trace.as_ref(),
         ];
         for op in ops.into_iter().flatten() {
-            if let Some(id) = &op.operation_id {
-                if let Some(prev) = seen_ids.insert(id.as_str(), path.as_str()) {
-                    d.error(format!(
-                        "operationId `{id}` is used by both `{prev}` and `{path}`"
-                    ));
-                }
+            if let Some(id) = &op.operation_id
+                && let Some(prev) = seen_ids.insert(id.as_str(), path.as_str())
+            {
+                d.error(format!(
+                    "operationId `{id}` is used by both `{prev}` and `{path}`"
+                ));
             }
         }
     }
@@ -1221,14 +1221,13 @@ fn lower_response(
             format!("schema of response header `{header_name}` of status `{status_code}`")
         })?;
 
-        match &type_ref {
-            TypeRef::Named(_) => bail!(
+        if let TypeRef::Named(_) = &type_ref {
+            bail!(
                 "response header `{header_name}` of status `{status_code}` \
                  resolves to a named schema — only scalar types are \
                  supported for response headers in v0.1"
-            ),
-            _ => {}
-        }
+            )
+        };
 
         headers.push(flap_ir::ResponseHeader {
             name: header_name.clone(),
@@ -1381,12 +1380,12 @@ fn lower_inline_schema(
         return lower_one_of(name, raw, ctx);
     }
 
-    if let Some(discriminator) = &raw.discriminator {
-        if raw.one_of.is_empty() && raw.any_of.is_empty() {
-            if let Some(children) = ctx.extension_map.get(name).cloned() {
-                return lower_allof_union(name, discriminator, &children, ctx);
-            }
-        }
+    if let Some(discriminator) = &raw.discriminator
+        && raw.one_of.is_empty()
+        && raw.any_of.is_empty()
+        && let Some(children) = ctx.extension_map.get(name).cloned()
+    {
+        return lower_allof_union(name, discriminator, &children, ctx);
     }
 
     if !raw.all_of.is_empty() {

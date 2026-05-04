@@ -560,18 +560,18 @@ impl EnumRegistry {
                 }
             }
 
-            if let Some(body) = &op.request_body {
-                if let TypeRef::Enum(values) = &body.schema_ref {
-                    let synth = format!("{op_pascal}Body");
-                    reg.body_enums.insert(op_id.clone(), synth.clone());
-                    reg.enums.insert(
-                        synth.clone(),
-                        SynthEnum {
-                            name: synth,
-                            values: values.clone(),
-                        },
-                    );
-                }
+            if let Some(body) = &op.request_body
+                && let TypeRef::Enum(values) = &body.schema_ref
+            {
+                let synth = format!("{op_pascal}Body");
+                reg.body_enums.insert(op_id.clone(), synth.clone());
+                reg.enums.insert(
+                    synth.clone(),
+                    SynthEnum {
+                        name: synth,
+                        values: values.clone(),
+                    },
+                );
             }
 
             for resp in &op.responses {
