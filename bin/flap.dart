@@ -12,5 +12,5 @@ import 'package:flap/src/runner.dart';
 ///   flap --out ./sdks --client=http tests/fixtures/petstore.yaml
 ///   flap --help
 Future<void> main(List<String> args) async {
-  exitCode = await FlapRunner().run(args);
+  exitCode = await const FlapRunner().run(args);
 }
