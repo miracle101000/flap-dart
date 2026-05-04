@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'platform_info.dart';
 
 const String _packageVersion = '0.0.1';
-const String _githubRepo = 'your-org/flap';
+const String _githubRepo = 'miracle101000/flap-dart';
 
 /// Locates the pre-built `flap` native binary, downloading it from GitHub
 /// Releases on first use and caching it in `~/.flap/bin/<version>/`.
@@ -121,9 +121,8 @@ class BinaryManager {
   static Future<void> _verifyChecksum(Uri assetUrl, List<int> bytes) async {
     final checksumUrl = Uri.parse('$assetUrl.sha256');
     try {
-      final resp = await http
-          .get(checksumUrl)
-          .timeout(const Duration(seconds: 10));
+      final resp =
+          await http.get(checksumUrl).timeout(const Duration(seconds: 10));
       if (resp.statusCode != 200) return; // No checksum published — skip.
 
       final expected = resp.body.split(RegExp(r'\s+')).first.toLowerCase();
