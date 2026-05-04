@@ -14,7 +14,7 @@ Future<void> main() async {
     '--out',
     './generated',
     '--client=http',
-    'api/openapi.yaml',
+    'fixtures/petstore.yaml',
   ]);
 
   if (exitCode != 0) {
