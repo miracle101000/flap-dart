@@ -100,7 +100,8 @@ class BinaryManager {
 
   static void _extractTarGz(String archivePath, String destDir) {
     final bytes = File(archivePath).readAsBytesSync();
-    final archive = const TarDecoder().decodeBytes(const GZipDecoder().decodeBytes(bytes));
+    final archive =
+        TarDecoder().decodeBytes(const GZipDecoder().decodeBytes(bytes));
     for (final file in archive) {
       if (!file.isFile) continue;
       final out = p.join(destDir, p.basename(file.name));
@@ -110,7 +111,7 @@ class BinaryManager {
 
   static void _extractZip(String archivePath, String destDir) {
     final bytes = File(archivePath).readAsBytesSync();
-    final archive = const ZipDecoder().decodeBytes(bytes);
+    final archive = ZipDecoder().decodeBytes(bytes);
     for (final file in archive) {
       if (!file.isFile) continue;
       final out = p.join(destDir, p.basename(file.name));

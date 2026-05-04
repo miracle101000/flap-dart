@@ -77,10 +77,10 @@
     },
     {
       "name": "archive",
-      "version": "3.6.1",
+      "version": "4.0.9",
       "dependencies": [
-        "crypto",
-        "path"
+        "path",
+        "posix"
       ]
     },
     {
@@ -465,6 +465,20 @@
         "meta",
         "path"
       ]
+    },
+    {
+      "name": "posix",
+      "version": "6.5.0",
+      "dependencies": [
+        "ffi",
+        "meta",
+        "path"
+      ]
+    },
+    {
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
     }
   ],
   "configVersion": 1

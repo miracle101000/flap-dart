@@ -15,7 +15,7 @@
     },
     {
       "name": "archive",
-      "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/archive-3.6.1",
+      "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/archive-4.0.9",
       "packageUri": "lib/",
       "languageVersion": "3.0"
     },
@@ -66,6 +66,12 @@
       "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/crypto-3.0.7",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "ffi",
+      "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/ffi-2.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.7"
     },
     {
       "name": "file",
@@ -162,6 +168,12 @@
       "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/pool-1.5.2",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "posix",
+      "rootUri": "file:///Users/user/.pub-cache/hosted/pub.dev/posix-6.5.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
     },
     {
       "name": "pub_semver",
