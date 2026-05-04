@@ -10,7 +10,7 @@ tests/
 fixtures/
 
 # Large assets
-doc/
+# doc/
 
 # Editor / CI
 .vscode/
