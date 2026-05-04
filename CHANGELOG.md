@@ -26,3 +26,7 @@ All notable changes to this project will be documented in this file.
 * `--template-dir` flag for Jinja2 template overrides.
 * Incremental builds with lockfile per output mode + backend.
 * Pre-generation validation accumulates all errors and reports them together.
+
+## 0.0.2
+
+* Simple version update
