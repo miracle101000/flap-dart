@@ -16,7 +16,7 @@ topics:
   - rest-api
 
 screenshots:
-  - description: Generating a Dart client from the Petstore spec
+  - description: Comparison of generated code from flap vs openapi-generator
     path: doc/screenshot_generate.png
 
 environment:
