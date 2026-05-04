@@ -160,20 +160,17 @@ fn main() -> ExitCode {
 }
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+type ParsedArgs = (
+    PathBuf,
+    Vec<String>,
+    bool,
+    ClientBackend,
+    MappingConfig,
+    TemplateConfig,
+);
+
 /// Parse `--out <dir> [--force] [--client=dio|http] <spec> [<spec> ...]`.
-fn parse_args(
-    args: &[String],
-) -> Result<
-    (
-        PathBuf,
-        Vec<String>,
-        bool,
-        ClientBackend,
-        MappingConfig,
-        TemplateConfig,
-    ),
-    String,
-> {
+fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     let mut out_dir: Option<PathBuf> = None;
     let mut specs: Vec<String> = Vec::new();
     let mut force = false;
