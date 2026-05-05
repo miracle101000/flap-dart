@@ -1,1 +1,32 @@
-target
+# Rust / Cargo
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/*
+.vscode/*
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dart / Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.fvm/
+
+# Exceptions
+!.vscode/extensions.json
+!.vscode/launch.json
+!.idea/codeStyles/
+!.idea/dictionaries/
+!.idea/runConfigurations/

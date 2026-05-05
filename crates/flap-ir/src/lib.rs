@@ -41,6 +41,7 @@ pub enum EnumValue {
 }
 
 impl fmt::Display for EnumValue {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EnumValue::Str(s) => f.write_str(s),
@@ -92,18 +93,27 @@ pub enum HttpMethod {
     Trace,
 }
 
-impl fmt::Display for HttpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl HttpMethod {
+    /// Returns the uppercase HTTP method name as a static string slice.
+    #[inline]
+    pub fn as_str(self) -> &'static str {
         match self {
-            HttpMethod::Delete => f.write_str("DELETE"),
-            HttpMethod::Get => f.write_str("GET"),
-            HttpMethod::Head => f.write_str("HEAD"),
-            HttpMethod::Options => f.write_str("OPTIONS"),
-            HttpMethod::Patch => f.write_str("PATCH"),
-            HttpMethod::Post => f.write_str("POST"),
-            HttpMethod::Put => f.write_str("PUT"),
-            HttpMethod::Trace => f.write_str("TRACE"),
+            Self::Delete => "DELETE",
+            Self::Get => "GET",
+            Self::Head => "HEAD",
+            Self::Options => "OPTIONS",
+            Self::Patch => "PATCH",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Trace => "TRACE",
         }
+    }
+}
+
+impl fmt::Display for HttpMethod {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -139,14 +149,23 @@ pub enum ParameterLocation {
     Query,
 }
 
-impl fmt::Display for ParameterLocation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ParameterLocation {
+    /// Returns the lowercase OpenAPI `in` value for this location.
+    #[inline]
+    pub fn as_str(self) -> &'static str {
         match self {
-            ParameterLocation::Cookie => f.write_str("cookie"),
-            ParameterLocation::Header => f.write_str("header"),
-            ParameterLocation::Path => f.write_str("path"),
-            ParameterLocation::Query => f.write_str("query"),
+            Self::Cookie => "cookie",
+            Self::Header => "header",
+            Self::Path => "path",
+            Self::Query => "query",
         }
+    }
+}
+
+impl fmt::Display for ParameterLocation {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -283,6 +302,8 @@ impl Field {
     /// lowering pass in `flap_spec` constructs `Field` directly because
     /// it computes `is_recursive` and `nullable` from the source spec;
     /// everywhere else, prefer this.
+    #[inline]
+    #[must_use]
     pub fn new(name: impl Into<String>, type_ref: TypeRef, required: bool) -> Self {
         Self {
             name: name.into(),
@@ -291,7 +312,7 @@ impl Field {
             nullable: false,
             is_recursive: false,
             default_value: None,
-            extensions: BTreeMap::new(),
+            extensions: Extensions::default(),
         }
     }
 }
@@ -324,10 +345,14 @@ impl fmt::Display for TypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TypeRef::String => f.write_str("string"),
-            TypeRef::Integer { format: Some(s) } => write!(f, "integer({s})"),
-            TypeRef::Integer { format: None } => f.write_str("integer"),
-            TypeRef::Number { format: Some(s) } => write!(f, "number({s})"),
-            TypeRef::Number { format: None } => f.write_str("number"),
+            TypeRef::Integer { format } => match format {
+                Some(s) => write!(f, "integer({s})"),
+                None => f.write_str("integer"),
+            },
+            TypeRef::Number { format } => match format {
+                Some(s) => write!(f, "number({s})"),
+                None => f.write_str("number"),
+            },
             TypeRef::Boolean => f.write_str("boolean"),
             TypeRef::DateTime => f.write_str("date-time"),
             TypeRef::Enum(values) => {
@@ -342,7 +367,7 @@ impl fmt::Display for TypeRef {
             }
             TypeRef::Map(inner) => write!(f, "map<{inner}>"),
             TypeRef::Array(inner) => write!(f, "array<{inner}>"),
-            TypeRef::Named(n) => write!(f, "{n}"),
+            TypeRef::Named(n) => f.write_str(n),
         }
     }
 }
@@ -356,13 +381,22 @@ pub enum ApiKeyLocation {
     Query,
 }
 
-impl fmt::Display for ApiKeyLocation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ApiKeyLocation {
+    /// Returns the lowercase OpenAPI `in` value for this location.
+    #[inline]
+    pub fn as_str(self) -> &'static str {
         match self {
-            ApiKeyLocation::Cookie => f.write_str("cookie"),
-            ApiKeyLocation::Header => f.write_str("header"),
-            ApiKeyLocation::Query => f.write_str("query"),
+            Self::Cookie => "cookie",
+            Self::Header => "header",
+            Self::Query => "query",
         }
+    }
+}
+
+impl fmt::Display for ApiKeyLocation {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -376,14 +410,23 @@ pub enum OAuth2FlowType {
     AuthorizationCode,
 }
 
-impl fmt::Display for OAuth2FlowType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl OAuth2FlowType {
+    /// Returns the OAuth2 flow type name as used in OpenAPI specs.
+    #[inline]
+    pub fn as_str(self) -> &'static str {
         match self {
-            OAuth2FlowType::Implicit => f.write_str("implicit"),
-            OAuth2FlowType::Password => f.write_str("password"),
-            OAuth2FlowType::ClientCredentials => f.write_str("clientCredentials"),
-            OAuth2FlowType::AuthorizationCode => f.write_str("authorizationCode"),
+            Self::Implicit => "implicit",
+            Self::Password => "password",
+            Self::ClientCredentials => "clientCredentials",
+            Self::AuthorizationCode => "authorizationCode",
         }
+    }
+}
+
+impl fmt::Display for OAuth2FlowType {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -398,39 +441,33 @@ pub struct OAuth2Flow {
     pub scopes: Vec<String>,
 }
 
+// Security schemes
+
+/// The kind of security scheme, without the shared name.
 #[derive(Debug, Clone)]
-pub enum SecurityScheme {
+pub enum SecuritySchemeKind {
     ApiKey {
-        scheme_name: String,
         parameter_name: String,
         location: ApiKeyLocation,
     },
-    HttpBasic {
-        scheme_name: String,
-    },
+    HttpBasic,
     HttpBearer {
-        scheme_name: String,
         bearer_format: Option<String>,
     },
+    /// At least one flow is always present - lowering rejects empty `flows` blocks.
     OAuth2 {
-        scheme_name: String,
-        /// At least one flow is always present — lowering rejects empty `flows` blocks.
         flows: Vec<OAuth2Flow>,
     },
     OpenIdConnect {
-        scheme_name: String,
         openid_connect_url: String,
     },
 }
 
-impl SecurityScheme {
-    pub fn scheme_name(&self) -> &str {
-        match self {
-            SecurityScheme::HttpBasic { scheme_name, .. } => scheme_name,
-            SecurityScheme::ApiKey { scheme_name, .. } => scheme_name,
-            SecurityScheme::HttpBearer { scheme_name, .. } => scheme_name,
-            SecurityScheme::OAuth2 { scheme_name, .. } => scheme_name,
-            SecurityScheme::OpenIdConnect { scheme_name, .. } => scheme_name,
-        }
-    }
+/// A resolved security scheme. The `name` is the key from
+/// `components/securitySchemes`; `kind` carries the type-specific fields.
+#[derive(Debug, Clone)]
+pub struct SecurityScheme {
+    /// The scheme name as declared in the spec (e.g. `"bearerAuth"`).
+    pub name: String,
+    pub kind: SecuritySchemeKind,
 }
