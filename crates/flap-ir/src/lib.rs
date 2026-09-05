@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DefaultValue {
     String(String),
     Integer(i64),
@@ -34,7 +34,7 @@ pub enum ExtensionValue {
 pub type Extensions = BTreeMap<String, ExtensionValue>;
 
 /// A single enum value. OpenAPI allows both string and integer enum values.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EnumValue {
     Str(String),
     Int(i64),
@@ -71,12 +71,16 @@ pub struct Api {
     /// The set of security scheme names applied to every operation by
     /// default (the top-level `security` block). Stored as a flat,
     /// deduplicated list of scheme names — OpenAPI's full
-    /// list-of-AND-of-OR structure is collapsed in v0.1, since the
-    /// generated Dart client supports providing any combination of
-    /// credentials and sending whichever ones are non-null. Each entry
-    /// is expected to reference an entry in `security_schemes`.
+    /// list-of-AND-of-OR structure is collapsed, since the generated Dart
+    /// client supports providing any combination of credentials and sending
+    /// whichever ones are non-null. Each entry is expected to reference an
+    /// entry in `security_schemes`.
     pub security: Vec<String>,
     pub extensions: Extensions,
+    /// Non-fatal problems found while lowering the spec (unsupported
+    /// constructs that were degraded to `dynamic`, skipped headers, …).
+    /// The CLI prints these; nothing in the IR depends on them.
+    pub warnings: Vec<String>,
 }
 
 // ── Operations ───────────────────────────────────────────────────────────────
@@ -124,7 +128,9 @@ pub struct Operation {
     pub operation_id: Option<String>,
     pub summary: Option<String>,
     /// Query, path, header, and cookie parameters for this operation.
-    /// Ordered as they appear in the spec — no re-sorting applied.
+    /// Path-level parameters are merged in ahead of operation-level ones;
+    /// an operation-level parameter with the same `name` + `in` overrides
+    /// the path-level declaration.
     pub parameters: Vec<Parameter>,
     /// The request body, if this operation accepts one.
     pub request_body: Option<RequestBody>,
@@ -136,12 +142,14 @@ pub struct Operation {
     pub responses: Vec<Response>,
     /// Per-operation security override.
     pub security: Option<Vec<String>>,
+    /// `deprecated: true` in the spec — emitters mark the method `@Deprecated`.
+    pub deprecated: bool,
     pub extensions: Extensions,
 }
 
 // ── Parameters ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParameterLocation {
     Cookie,
     Header,
@@ -182,11 +190,29 @@ pub struct Parameter {
 
 #[derive(Debug)]
 pub struct RequestBody {
+    /// The selected media type, e.g. `application/json`.
     pub content_type: String,
     pub schema_ref: TypeRef,
     pub required: bool,
+    /// True when `content_type` is `multipart/form-data`.
     pub is_multipart: bool,
     pub extensions: Extensions,
+}
+
+impl RequestBody {
+    /// True when the body must be sent as `application/x-www-form-urlencoded`.
+    #[inline]
+    pub fn is_form_urlencoded(&self) -> bool {
+        self.content_type
+            .eq_ignore_ascii_case("application/x-www-form-urlencoded")
+    }
+
+    /// True when the body is JSON (`application/json`, `application/problem+json`, …).
+    #[inline]
+    pub fn is_json(&self) -> bool {
+        let ct = self.content_type.to_ascii_lowercase();
+        ct.starts_with("application/json") || ct.ends_with("+json")
+    }
 }
 
 // ── Response headers ──────────────────────────────────────────────────────────
@@ -194,8 +220,7 @@ pub struct RequestBody {
 /// A single header declared on a response.
 ///
 /// OpenAPI allows any header whose schema resolves to a scalar or array of
-/// scalars. v0.1 supports `string`, `integer`, `number`, `boolean`, and
-/// `array<scalar>` — complex object headers are rejected at lowering time.
+/// scalars. Headers whose schema is an object are skipped at lowering time.
 #[derive(Debug)]
 pub struct ResponseHeader {
     /// The wire-side header name, e.g. `"X-Rate-Limit-Remaining"`.
@@ -209,6 +234,9 @@ pub struct ResponseHeader {
 #[derive(Debug)]
 pub struct Response {
     pub status_code: String,
+    /// The media type the body schema was taken from (e.g. `application/json`),
+    /// when the response declares content.
+    pub content_type: Option<String>,
     pub schema_ref: Option<TypeRef>,
     /// Response headers declared in the spec for this status code.
     /// Empty when no `headers:` block is present — the emitter then
@@ -253,9 +281,15 @@ pub enum SchemaKind {
     UntaggedUnion { variants: Vec<TypeRef> },
     /// A top-level `$ref` alias — emitted as a Dart `typedef`.
     Alias { target: String },
+    /// A named enum schema (`type: string, enum: [...]`) — emitted as a
+    /// Dart `enum` with the schema's name.
+    Enum { values: Vec<EnumValue> },
+    /// A named primitive schema (`type: string`, `type: integer`, …) —
+    /// emitted as a Dart `typedef` onto the primitive type.
+    Primitive { type_ref: TypeRef },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Field {
     pub name: String,
     pub type_ref: TypeRef,
@@ -318,7 +352,7 @@ impl Field {
 }
 
 /// A reference to a concrete type, either primitive or a named schema.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeRef {
     String,
     Integer {
@@ -330,6 +364,12 @@ pub enum TypeRef {
     Boolean,
     /// `type: string, format: date-time` — emitted as Dart `DateTime`.
     DateTime,
+    /// `type: string, format: binary` — raw bytes, emitted as Dart `List<int>`.
+    Binary,
+    /// A schema with no usable type information (`{}`, `type: object` with
+    /// neither `properties` nor `additionalProperties`, unsupported
+    /// constructs). Emitted as Dart `dynamic`.
+    Any,
     /// A closed set of allowed values (`enum: [...]`).
     /// Supports both string and integer enum values.
     Enum(Vec<EnumValue>),
@@ -339,6 +379,21 @@ pub enum TypeRef {
     Array(Box<TypeRef>),
     /// Reference to a named component schema (the bare name, not the $ref path).
     Named(String),
+}
+
+impl TypeRef {
+    /// True for scalar JSON types (string, number, integer, boolean, date-time).
+    #[inline]
+    pub fn is_scalar(&self) -> bool {
+        matches!(
+            self,
+            TypeRef::String
+                | TypeRef::Integer { .. }
+                | TypeRef::Number { .. }
+                | TypeRef::Boolean
+                | TypeRef::DateTime
+        )
+    }
 }
 
 impl fmt::Display for TypeRef {
@@ -355,6 +410,8 @@ impl fmt::Display for TypeRef {
             },
             TypeRef::Boolean => f.write_str("boolean"),
             TypeRef::DateTime => f.write_str("date-time"),
+            TypeRef::Binary => f.write_str("binary"),
+            TypeRef::Any => f.write_str("any"),
             TypeRef::Enum(values) => {
                 f.write_str("enum[")?;
                 for (i, v) in values.iter().enumerate() {

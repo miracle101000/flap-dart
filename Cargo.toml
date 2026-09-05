@@ -4,21 +4,18 @@ resolver = "2"
 
 [package]
 name = "flap"
-version = "0.0.1"
-edition = "2021"
+version = "0.0.5"
+edition = "2024"
+
+[[bin]]
+name = "generate_dart"
+path = "src/bin/generate_dart.rs"
 
 [dependencies]
 flap-ir = { path = "crates/flap-ir" }
 flap-emit-dart = { path = "crates/flap-emit-dart" }
 flap-spec = { path = "crates/flap-spec" }
-sha2 = "0.10" 
-anyhow = "1"
-clap = "4"
+sha2 = "0.10"
 
 [dev-dependencies]
-flap-emit-dart = { path = "crates/flap-emit-dart" }
-flap-spec = { path = "crates/flap-spec" }
-clap = { version = "4", features = ["derive"] }
-anyhow = "1"
-sha2 = "0.10"          # ← add
-tempfile = "3"         # ← add
+tempfile = "3"

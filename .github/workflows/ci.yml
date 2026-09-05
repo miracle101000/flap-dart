@@ -39,4 +39,5 @@ jobs:
           sdk: stable
       - run: dart pub get
       - run: dart analyze --fatal-infos
+      - run: dart test
       - run: dart pub publish --dry-run

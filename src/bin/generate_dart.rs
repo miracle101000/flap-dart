@@ -2,99 +2,166 @@
 //! to disk. Each spec gets its own subdirectory under the shared output root.
 //!
 //! Usage:
-//!   cargo run --bin generate_dart -- --out <out-dir> [--force] [--client=dio|http] <spec> [<spec> ...]
+//!   flap --out <out-dir> [--force] [--client=dio|http] [--null-unsafe] <spec> [<spec> ...]
 //!
 //! Examples:
 //!   # Single local file, Dio client (default)
-//!   cargo run --bin generate_dart -- \
-//!     --out ./sdks \
-//!     tests/fixtures/petstore.yaml
+//!   flap --out ./sdks fixtures/petstore.yaml
 //!
 //!   # http package client
-//!   cargo run --bin generate_dart -- \
-//!     --out ./sdks \
-//!     --client=http \
-//!     tests/fixtures/petstore.yaml
+//!   flap --out ./sdks --client=http fixtures/petstore.yaml
 //!
 //!   # Multiple specs, force regeneration
-//!   cargo run --bin generate_dart -- \
-//!     --out ./sdks \
-//!     --force \
-//!     tests/fixtures/petstore.yaml \
-//!     https://petstore3.swagger.io/api/v3/openapi.yaml
+//!   flap --out ./sdks --force fixtures/petstore.yaml https://petstore3.swagger.io/api/v3/openapi.yaml
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::UNIX_EPOCH;
 
 use flap_emit_dart::{ClientBackend, MappingConfig, NullSafety, TemplateConfig};
+use sha2::{Digest, Sha256};
 
 const FLAP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const LOCK_FILE: &str = ".flap.lock";
 
+const USAGE: &str = "\
+flap — OpenAPI → Dart/Flutter client generator
+
+USAGE:
+    flap --out <dir> [OPTIONS] <spec> [<spec> ...]
+
+ARGS:
+    <spec>                     Path or http(s) URL of an OpenAPI 3.x / Swagger 2.0 document (YAML or JSON)
+
+OPTIONS:
+    -o, --out <dir>            Output root. Each spec is written to <dir>/<spec-stem>/
+    -f, --force                Regenerate even when the lockfile says nothing changed
+        --client=<dio|http>    HTTP backend for the generated client (default: dio)
+        --null-unsafe          Additionally emit legacy null-unsafe code to <dir>/<spec-stem>/null_unsafe/
+                               (Dart 3 SDKs cannot compile this output)
+        --type-map=<Schema=DartType>
+                               Replace a spec schema with a hand-written Dart type (repeatable)
+        --import-map=<DartType=package:...>
+                               Import to use for a mapped Dart type (repeatable)
+    -t, --template-dir <dir>   Directory of Jinja2 / verbatim template overrides
+    -h, --help                 Print this help
+    -V, --version              Print the version
+";
+
+struct Args {
+    out_dir: PathBuf,
+    specs: Vec<String>,
+    force: bool,
+    backend: ClientBackend,
+    null_unsafe: bool,
+    mappings: MappingConfig,
+    templates: TemplateConfig,
+}
+
+enum Parsed {
+    Run(Args),
+    Help,
+    Version,
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
 
-    let (out_dir, specs, force, backend, mappings, templates) = match parse_args(&args) {
-        Ok(v) => v,
+    let args = match parse_args(&args) {
+        Ok(Parsed::Run(a)) => a,
+        Ok(Parsed::Help) => {
+            print!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Ok(Parsed::Version) => {
+            println!("flap {FLAP_VERSION}");
+            return ExitCode::SUCCESS;
+        }
         Err(msg) => {
-            eprintln!("error: {msg}");
-            eprintln!(
-                "usage: gen_dart --out <out-dir> [--force] [--client=dio|http]\n\
-                 \t[--type-map=Schema=DartType] [--import-map=DartType=package:...]\n\
-                 \t[--template-dir=<dir>] <spec> [<spec> ...]"
-            );
+            eprintln!("error: {msg}\n");
+            eprint!("{USAGE}");
             return ExitCode::from(2);
         }
     };
 
-    if specs.is_empty() {
-        eprintln!("error: at least one spec path or URL is required");
+    if args.specs.is_empty() {
+        eprintln!("error: at least one spec path or URL is required\n");
+        eprint!("{USAGE}");
         return ExitCode::from(2);
     }
 
-    let backend_label = match backend {
-        ClientBackend::Dio => "dio",
-        ClientBackend::Http => "http",
-    };
-    println!("client backend : {backend_label}");
-    if !mappings.is_empty() {
-        for (k, v) in &mappings.type_map {
-            println!("  type-map     : {k} → {v}");
-        }
-        for (k, v) in &mappings.import_map {
-            println!("  import-map   : {k} → {v}");
-        }
+    println!("client backend : {}", args.backend.as_str());
+    for (k, v) in sorted(&args.mappings.type_map) {
+        println!("  type-map     : {k} → {v}");
     }
-    if let Some(dir) = &templates.template_dir {
+    for (k, v) in sorted(&args.mappings.import_map) {
+        println!("  import-map   : {k} → {v}");
+    }
+    if let Some(dir) = &args.templates.template_dir {
         println!("template dir   : {}", dir.display());
+    }
+    if args.null_unsafe {
+        println!("null-unsafe    : enabled (note: Dart 3 SDKs cannot compile null-unsafe code)");
+    }
+
+    let mut modes: Vec<(NullSafety, Option<&str>)> = vec![(NullSafety::Safe, None)];
+    if args.null_unsafe {
+        modes.push((NullSafety::Unsafe, Some("null_unsafe")));
     }
 
     let mut any_failed = false;
 
-    for spec in &specs {
+    for spec in &args.specs {
         println!("\n── {spec} ──");
 
-        let fingerprint = local_fingerprint(spec, backend, &mappings, &templates);
+        let fingerprint = local_fingerprint(spec, args.backend, &args.mappings, &args.templates);
+        let spec_root = args.out_dir.join(spec_to_dir_name(spec));
 
-        let api = match flap_spec::load_path_or_url(spec) {
-            Ok(api) => api,
-            Err(e) => {
-                eprintln!("  error loading spec: {e:#}");
-                any_failed = true;
+        let mut api: Option<flap_ir::Api> = None;
+
+        for (mode, subdir) in &modes {
+            let mode_label = match mode {
+                NullSafety::Safe => "null_safe",
+                NullSafety::Unsafe => "null_unsafe",
+            };
+            let spec_out = match subdir {
+                Some(sub) => spec_root.join(sub),
+                None => spec_root.clone(),
+            };
+            let lock_path = spec_out.join(format!(
+                "{LOCK_FILE}.{mode_label}.{}",
+                args.backend.as_str()
+            ));
+
+            if !args.force
+                && let Some(fp) = &fingerprint
+                && read_lock(&lock_path).as_deref() == Some(fp.as_str())
+            {
+                println!(
+                    "  [{mode_label}/{}] unchanged — skipping",
+                    args.backend.as_str()
+                );
                 continue;
             }
-        };
 
-        let subdir_name = spec_to_dir_name(spec);
-
-        for (mode, suffix) in [
-            (NullSafety::Safe, "null_safe"),
-            (NullSafety::Unsafe, "null_unsafe"),
-        ] {
-            let spec_out = out_dir.join(&subdir_name);
+            // Load lazily so an up-to-date lockfile never triggers a network fetch.
+            if api.is_none() {
+                match flap_spec::load_path_or_url(spec) {
+                    Ok(loaded) => {
+                        for w in &loaded.warnings {
+                            eprintln!("  warning: {w}");
+                        }
+                        api = Some(loaded);
+                    }
+                    Err(e) => {
+                        eprintln!("  error loading spec: {e:#}");
+                        any_failed = true;
+                        break;
+                    }
+                }
+            }
+            let api_ref = api.as_ref().expect("loaded above");
 
             if let Err(e) = fs::create_dir_all(&spec_out) {
                 eprintln!("  error creating {}: {e}", spec_out.display());
@@ -102,52 +169,49 @@ fn main() -> ExitCode {
                 continue;
             }
 
-            let lock_path = spec_out.join(format!("{LOCK_FILE}.{suffix}.{backend_label}"));
-            if !force {
-                if let Some(ref fp) = fingerprint {
-                    if read_lock(&lock_path).as_deref() == Some(fp.as_str()) {
-                        println!("  [{suffix}/{backend_label}] unchanged — skipping");
-                        continue;
-                    }
-                }
-            }
+            let models =
+                flap_emit_dart::emit_models(api_ref, *mode, &args.mappings, &args.templates);
+            let (client_filename, client_src) = flap_emit_dart::emit_client(
+                api_ref,
+                *mode,
+                args.backend,
+                &args.mappings,
+                &args.templates,
+            );
 
-            let models = flap_emit_dart::emit_models(&api, mode, &mappings, &templates);
+            let mut write_ok = true;
             let mut filenames: Vec<&String> = models.keys().collect();
             filenames.sort();
-            let mut write_ok = true;
             for filename in filenames {
                 let path = spec_out.join(filename);
                 if let Err(e) = fs::write(&path, &models[filename]) {
                     eprintln!("  error writing {}: {e}", path.display());
-                    any_failed = true;
                     write_ok = false;
                     continue;
                 }
                 println!("  wrote {}", path.display());
             }
-
-            let (client_filename, client_src) =
-                flap_emit_dart::emit_client(&api, mode, backend, &mappings, &templates);
             let client_path = spec_out.join(&client_filename);
             if let Err(e) = fs::write(&client_path, &client_src) {
                 eprintln!("  error writing {}: {e}", client_path.display());
-                any_failed = true;
                 write_ok = false;
             } else {
                 println!("  wrote {}", client_path.display());
             }
 
             println!(
-                "  [{suffix}/{backend_label}] {} model file(s) + 1 client → {}",
+                "  [{mode_label}/{}] {} model file(s) + 1 client → {}",
+                args.backend.as_str(),
                 models.len(),
                 spec_out.display()
             );
 
             if write_ok {
-                if let Some(ref fp) = fingerprint {
+                if let Some(fp) = &fingerprint {
                     write_lock(&lock_path, fp);
                 }
+            } else {
+                any_failed = true;
             }
         }
     }
@@ -158,29 +222,38 @@ fn main() -> ExitCode {
         ExitCode::SUCCESS
     }
 }
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type ParsedArgs = (
-    PathBuf,
-    Vec<String>,
-    bool,
-    ClientBackend,
-    MappingConfig,
-    TemplateConfig,
-);
+fn sorted(map: &std::collections::HashMap<String, String>) -> Vec<(&String, &String)> {
+    let mut v: Vec<_> = map.iter().collect();
+    v.sort();
+    v
+}
 
-/// Parse `--out <dir> [--force] [--client=dio|http] <spec> [<spec> ...]`.
-fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
+/// Parse the command line. `--help`/`--version` short-circuit.
+fn parse_args(args: &[String]) -> Result<Parsed, String> {
     let mut out_dir: Option<PathBuf> = None;
     let mut specs: Vec<String> = Vec::new();
     let mut force = false;
     let mut backend = ClientBackend::Dio;
+    let mut null_unsafe = false;
     let mut mappings = MappingConfig::default();
     let mut templates = TemplateConfig::default();
     let mut i = 0;
+    let mut only_positional = false;
 
     while i < args.len() {
-        match args[i].as_str() {
+        let arg = args[i].as_str();
+        if only_positional {
+            specs.push(arg.to_string());
+            i += 1;
+            continue;
+        }
+        match arg {
+            "--" => only_positional = true,
+            "-h" | "--help" => return Ok(Parsed::Help),
+            "-V" | "--version" => return Ok(Parsed::Version),
             "--out" | "-o" => {
                 i += 1;
                 let dir = args
@@ -188,32 +261,29 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
                     .ok_or_else(|| "--out requires a directory argument".to_string())?;
                 out_dir = Some(PathBuf::from(dir));
             }
-            arg if arg.starts_with("--out=") => {
+            _ if arg.starts_with("--out=") => {
                 out_dir = Some(PathBuf::from(&arg["--out=".len()..]));
             }
-            "--force" | "-f" => {
-                force = true;
+            "--force" | "-f" => force = true,
+            "--null-unsafe" => null_unsafe = true,
+            "--client" => {
+                i += 1;
+                let val = args
+                    .get(i)
+                    .ok_or_else(|| "--client requires `dio` or `http`".to_string())?;
+                backend = parse_backend(val)?;
             }
-            "--client=dio" => {
-                backend = ClientBackend::Dio;
+            _ if arg.starts_with("--client=") => {
+                backend = parse_backend(&arg["--client=".len()..])?;
             }
-            "--client=http" => {
-                backend = ClientBackend::Http;
-            }
-            arg if arg.starts_with("--client=") => {
-                let val = &arg["--client=".len()..];
-                return Err(format!(
-                    "unknown client backend `{val}` — expected `dio` or `http`"
-                ));
-            }
-            arg if arg.starts_with("--type-map=") => {
+            _ if arg.starts_with("--type-map=") => {
                 let pair = &arg["--type-map=".len()..];
                 let (k, v) = pair
                     .split_once('=')
                     .ok_or_else(|| format!("--type-map requires KEY=VALUE, got `{pair}`"))?;
                 mappings.type_map.insert(k.to_string(), v.to_string());
             }
-            arg if arg.starts_with("--import-map=") => {
+            _ if arg.starts_with("--import-map=") => {
                 let pair = &arg["--import-map=".len()..];
                 let (k, v) = pair
                     .split_once('=')
@@ -227,29 +297,42 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
                     .ok_or_else(|| "--template-dir requires a path argument".to_string())?;
                 templates.template_dir = Some(PathBuf::from(dir));
             }
-            arg if arg.starts_with("--template-dir=") => {
+            _ if arg.starts_with("--template-dir=") => {
                 templates.template_dir = Some(PathBuf::from(&arg["--template-dir=".len()..]));
             }
-            other => {
-                specs.push(other.to_string());
+            _ if arg.starts_with('-') && arg.len() > 1 => {
+                return Err(format!("unknown option `{arg}`"));
             }
+            other => specs.push(other.to_string()),
         }
         i += 1;
     }
 
     let out_dir = out_dir.ok_or_else(|| "--out <dir> is required".to_string())?;
-    Ok((out_dir, specs, force, backend, mappings, templates))
+    Ok(Parsed::Run(Args {
+        out_dir,
+        specs,
+        force,
+        backend,
+        null_unsafe,
+        mappings,
+        templates,
+    }))
 }
 
-/// Fingerprint a local spec file using mtime + size + flap version + backend.
-///
-/// Including the backend means switching from `--client=dio` to `--client=http`
-/// invalidates the lockfile and forces regeneration even when the spec is
-/// unchanged — correct because the client file content differs between backends.
-///
-/// Returns `None` for remote URLs — those always regenerate.
-/// Fingerprint includes template file contents so that editing a template
-/// invalidates the lockfile even when the spec is unchanged.
+fn parse_backend(val: &str) -> Result<ClientBackend, String> {
+    match val {
+        "dio" => Ok(ClientBackend::Dio),
+        "http" => Ok(ClientBackend::Http),
+        other => Err(format!(
+            "unknown client backend `{other}` — expected `dio` or `http`"
+        )),
+    }
+}
+
+/// Fingerprint a local spec: SHA-256 of its content plus everything else
+/// that influences the output (flap version, backend, mappings, template
+/// files). Returns `None` for remote URLs — those always regenerate.
 fn local_fingerprint(
     spec: &str,
     backend: ClientBackend,
@@ -259,78 +342,67 @@ fn local_fingerprint(
     if spec.starts_with("http://") || spec.starts_with("https://") {
         return None;
     }
-    let meta = std::fs::metadata(spec).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    let size = meta.len();
+    let content = fs::read(spec).ok()?;
 
-    let backend_tag = match backend {
-        ClientBackend::Dio => "dio",
-        ClientBackend::Http => "http",
-    };
+    let mut hasher = Sha256::new();
+    hasher.update(FLAP_VERSION.as_bytes());
+    hasher.update(b"|backend:");
+    hasher.update(backend.as_str().as_bytes());
+    hasher.update(b"|spec:");
+    hasher.update(&content);
 
-    let mut type_pairs: Vec<String> = mappings
-        .type_map
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect();
-    type_pairs.sort();
-    let mut import_pairs: Vec<String> = mappings
-        .import_map
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect();
-    import_pairs.sort();
-    let mappings_tag = format!("t:[{}]i:[{}]", type_pairs.join(","), import_pairs.join(","));
+    hasher.update(b"|type-map:");
+    for (k, v) in sorted(&mappings.type_map) {
+        hasher.update(k.as_bytes());
+        hasher.update(b"=");
+        hasher.update(v.as_bytes());
+        hasher.update(b",");
+    }
+    hasher.update(b"|import-map:");
+    for (k, v) in sorted(&mappings.import_map) {
+        hasher.update(k.as_bytes());
+        hasher.update(b"=");
+        hasher.update(v.as_bytes());
+        hasher.update(b",");
+    }
 
-    // Hash every template file's content so edits are detected.
-    let template_hash = if let Some(dir) = &templates.template_dir {
-        let mut entries: Vec<(String, String)> = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(dir) {
+    hasher.update(b"|templates:");
+    if let Some(dir) = &templates.template_dir {
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+        if let Ok(rd) = fs::read_dir(dir) {
             for entry in rd.flatten() {
                 let path = entry.path();
-                if path.is_file() {
-                    if let (Some(name), Ok(content)) = (
-                        path.file_name()
-                            .and_then(|n| n.to_str())
-                            .map(str::to_string),
-                        std::fs::read_to_string(&path),
-                    ) {
-                        entries.push((name, content));
-                    }
+                if path.is_file()
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && let Ok(bytes) = fs::read(&path)
+                {
+                    entries.push((name.to_string(), bytes));
                 }
             }
         }
         entries.sort_by(|a, b| a.0.cmp(&b.0));
-        // Simple hash: sum of byte lengths + joined names.
-        // Cheap and sufficient — a content change changes the length or text.
-        let summary: String = entries
-            .iter()
-            .map(|(name, content)| format!("{name}:{}", content.len()))
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("tmpl:[{summary}]")
-    } else {
-        "tmpl:[]".to_string()
-    };
+        for (name, bytes) in entries {
+            hasher.update(name.as_bytes());
+            hasher.update(b":");
+            hasher.update(&bytes);
+            hasher.update(b";");
+        }
+    }
 
-    Some(format!(
-        "flap:{FLAP_VERSION}|backend:{backend_tag}|{mappings_tag}|{template_hash}|mtime:{mtime}|size:{size}"
-    ))
+    Some(format!("sha256:{:x}", hasher.finalize()))
 }
 
-fn read_lock(path: &std::path::Path) -> Option<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
+fn read_lock(path: &Path) -> Option<String> {
+    fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
-fn write_lock(path: &std::path::Path, fingerprint: &str) {
-    let _ = std::fs::write(path, fingerprint);
+fn write_lock(path: &Path, fingerprint: &str) {
+    if let Err(e) = fs::write(path, fingerprint) {
+        eprintln!(
+            "  warning: could not write lockfile {}: {e}",
+            path.display()
+        );
+    }
 }
 
 /// Convert a spec path or URL into a safe single-directory-component name.
@@ -348,8 +420,8 @@ fn spec_to_dir_name(spec: &str) -> String {
         .unwrap_or(spec);
 
     let basename = without_suffix
-        .trim_end_matches('/')
-        .rsplit('/')
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(without_suffix);
 
@@ -370,9 +442,57 @@ fn spec_to_dir_name(spec: &str) -> String {
         })
         .collect();
 
-    if sanitised.is_empty() {
+    if sanitised.is_empty() || sanitised.chars().all(|c| c == '_') {
         "spec".to_string()
     } else {
         sanitised
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dir_names() {
+        assert_eq!(spec_to_dir_name("tests/fixtures/petstore.yaml"), "petstore");
+        assert_eq!(
+            spec_to_dir_name("https://example.com/api/v3/openapi.yaml?x=1"),
+            "openapi"
+        );
+        assert_eq!(spec_to_dir_name("C:\\specs\\my api.json"), "my_api");
+        assert_eq!(spec_to_dir_name("..."), "spec");
+    }
+
+    #[test]
+    fn parses_flags() {
+        let args: Vec<String> = [
+            "--out",
+            "o",
+            "--client=http",
+            "--null-unsafe",
+            "-f",
+            "a.yaml",
+            "b.yaml",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let Parsed::Run(a) = parse_args(&args).unwrap() else {
+            panic!()
+        };
+        assert_eq!(a.out_dir, PathBuf::from("o"));
+        assert_eq!(a.backend, ClientBackend::Http);
+        assert!(a.null_unsafe && a.force);
+        assert_eq!(a.specs, vec!["a.yaml", "b.yaml"]);
+        assert!(matches!(
+            parse_args(&["--help".to_string()]).unwrap(),
+            Parsed::Help
+        ));
+        assert!(parse_args(&["--bogus".to_string()]).is_err());
+        assert!(
+            parse_args(&["a.yaml".to_string()]).is_err(),
+            "--out is required"
+        );
     }
 }

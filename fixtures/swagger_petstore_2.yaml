@@ -1,0 +1,186 @@
+# Swagger 2.0 document — exercises the 2.0 → 3.x translation.
+swagger: '2.0'
+info:
+  title: Swagger 2 Petstore
+  version: '1.0'
+host: petstore.example.com
+basePath: /v2
+schemes: [https]
+consumes: [application/json]
+produces: [application/json]
+securityDefinitions:
+  api_key:
+    type: apiKey
+    in: header
+    name: api_key
+  petstore_auth:
+    type: oauth2
+    flow: implicit
+    authorizationUrl: https://petstore.example.com/oauth/authorize
+    scopes:
+      write:pets: modify pets
+      read:pets: read pets
+  basic:
+    type: basic
+security:
+  - api_key: []
+parameters:
+  limitParam:
+    name: limit
+    in: query
+    type: integer
+    format: int32
+paths:
+  /pets:
+    get:
+      operationId: findPets
+      summary: Finds pets by status
+      parameters:
+        - $ref: '#/parameters/limitParam'
+        - name: status
+          in: query
+          type: array
+          items:
+            type: string
+            enum: [available, pending, sold]
+          collectionFormat: multi
+      responses:
+        '200':
+          description: ok
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Pet'
+          headers:
+            X-Rate-Limit:
+              type: integer
+        default:
+          $ref: '#/responses/Error'
+    post:
+      operationId: addPet
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/Pet'
+      responses:
+        '201':
+          description: created
+          schema:
+            $ref: '#/definitions/Pet'
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        type: integer
+        format: int64
+    get:
+      operationId: getPetById
+      responses:
+        '200':
+          description: ok
+          schema:
+            $ref: '#/definitions/Pet'
+    post:
+      operationId: updatePetWithForm
+      consumes: [application/x-www-form-urlencoded]
+      parameters:
+        - name: name
+          in: formData
+          type: string
+        - name: status
+          in: formData
+          type: string
+      responses:
+        '204':
+          description: ok
+  /pets/{petId}/image:
+    post:
+      operationId: uploadImage
+      consumes: [multipart/form-data]
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          type: integer
+        - name: file
+          in: formData
+          type: file
+          required: true
+        - name: additionalMetadata
+          in: formData
+          type: string
+      responses:
+        '200':
+          description: ok
+          schema:
+            $ref: '#/definitions/ApiResponse'
+responses:
+  Error:
+    description: unexpected error
+    schema:
+      $ref: '#/definitions/ApiResponse'
+definitions:
+  Pet:
+    type: object
+    required: [name, photoUrls]
+    properties:
+      id:
+        type: integer
+        format: int64
+      category:
+        $ref: '#/definitions/Category'
+      name:
+        type: string
+      photoUrls:
+        type: array
+        items:
+          type: string
+      tags:
+        type: array
+        items:
+          $ref: '#/definitions/Tag'
+      status:
+        type: string
+        enum: [available, pending, sold]
+      nickname:
+        type: string
+        x-nullable: true
+      attributes:
+        type: object
+        properties:
+          weight:
+            type: number
+          color:
+            type: string
+  Category:
+    type: object
+    properties:
+      id:
+        type: integer
+        format: int64
+      name:
+        type: string
+  Tag:
+    type: object
+    properties:
+      id:
+        type: integer
+        format: int64
+      name:
+        type: string
+  ApiResponse:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      type:
+        type: string
+      message:
+        type: string
+  Status:
+    type: string
+    enum: [ok, degraded, down]

@@ -1,0 +1,376 @@
+openapi: 3.0.3
+info:
+  title: Kitchen Sink
+  version: '1.0.0'
+  description: >
+    Exercises the constructs that broke earlier flap versions: discriminated
+    and untagged unions, allOf inheritance, inline objects, root-level enums,
+    $ref parameters, path-level parameters, reserved-word names, dotted schema
+    names, multipart uploads, form bodies, cookie parameters, response headers
+    and free-form objects.
+servers:
+  - url: https://{region}.api.example.com/v2
+    variables:
+      region:
+        default: eu
+  - url: https://staging.api.example.com/v2
+security:
+  - bearerAuth: []
+paths:
+  /shapes:
+    parameters:
+      - $ref: '#/components/parameters/TraceId'
+    get:
+      operationId: list-shapes
+      summary: List shapes
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/ShapeKind'
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: session
+          in: cookie
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Total-Count:
+              required: true
+              schema:
+                type: integer
+            X-Next-Cursor:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shape'
+    post:
+      operationId: createShape
+      deprecated: true
+      requestBody:
+        $ref: '#/components/requestBodies/ShapeBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/ShapeCreated'
+  /shapes/{shape id}:
+    parameters:
+      - name: shape id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteShape
+      responses:
+        '204':
+          description: deleted
+    patch:
+      operationId: patchShape
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShapePatch'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shape'
+  /uploads:
+    post:
+      operationId: uploadAsset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+                visibility:
+                  type: string
+                  enum: [public, private]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+  /assets/{id}/raw:
+    get:
+      operationId: downloadAsset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /login:
+    post:
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  expires_in:
+                    type: integer
+  /status:
+    get:
+      operationId: getStatus
+      responses:
+        '200':
+          description: plain status
+          content:
+            text/plain:
+              schema:
+                type: string
+  /search:
+    get:
+      responses:
+        '200':
+          description: anything
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchHit'
+components:
+  parameters:
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      schema:
+        type: string
+  requestBodies:
+    ShapeBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Shape'
+  responses:
+    ShapeCreated:
+      description: created
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Shape'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+  schemas:
+    ShapeKind:
+      type: string
+      enum: [circle, square, new, default, Circle]
+    Shape:
+      oneOf:
+        - $ref: '#/components/schemas/Circle'
+        - $ref: '#/components/schemas/Square'
+      discriminator:
+        propertyName: type
+        mapping:
+          circle: '#/components/schemas/Circle'
+          sq: '#/components/schemas/Square'
+    ShapeBase:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        class:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    Circle:
+      allOf:
+        - $ref: '#/components/schemas/ShapeBase'
+        - type: object
+          required: [radius]
+          properties:
+            radius:
+              type: number
+              format: double
+    Square:
+      allOf:
+        - $ref: '#/components/schemas/ShapeBase'
+        - type: object
+          properties:
+            side:
+              type: number
+              default: 1
+            corners:
+              type: object
+              properties:
+                rounded:
+                  type: boolean
+                  default: false
+    ShapePatch:
+      type: object
+      properties:
+        label:
+          type: string
+          nullable: true
+        priority:
+          type: integer
+          nullable: true
+        weight:
+          type: number
+          format: float
+          nullable: true
+        active:
+          type: boolean
+          nullable: true
+        kind:
+          $ref: '#/components/schemas/ShapeKind'
+        parent:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Shape'
+    Asset:
+      type: object
+      required: [id, url]
+      properties:
+        id:
+          type: integer
+          format: int64
+        url:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        extra: {}
+        labels:
+          type: array
+          items:
+            type: string
+            enum: [a, b, c]
+    SearchHit:
+      anyOf:
+        - $ref: '#/components/schemas/Asset'
+        - type: string
+        - type: integer
+    com.example.Legacy:
+      type: object
+      properties:
+        Value:
+          type: string
+        hashCode:
+          type: integer
+    Tree:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        parent:
+          $ref: '#/components/schemas/Tree'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tree'
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+        currency:
+          type: string
+    Prices:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/Money'
+    IdList:
+      type: array
+      items:
+        type: integer
+    Pet:
+      type: object
+      discriminator:
+        propertyName: species
+      required: [species, name]
+      properties:
+        species:
+          type: string
+        name:
+          type: string
+    Cat:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            indoor:
+              type: boolean
+    Dog:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            barks:
+              type: boolean

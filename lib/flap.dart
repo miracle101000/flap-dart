@@ -21,6 +21,11 @@
 ///   if (code != 0) throw Exception('flap exited with code $code');
 /// }
 /// ```
+///
+/// Set the `FLAP_BINARY` environment variable to use a locally built
+/// generator instead of the downloaded release binary.
 library;
 
+export 'src/binary_manager.dart' show BinaryManager, flapBinaryEnv;
 export 'src/runner.dart' show FlapRunner;
+export 'src/version.dart' show packageVersion;

@@ -22,6 +22,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             asset_name: flap-linux-x64
             archive_ext: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset_name: flap-linux-arm64
+            archive_ext: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             asset_name: flap-macos-x64
@@ -120,10 +124,20 @@ jobs:
       - name: Install dependencies
         run: dart pub get
 
+      - name: Check tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PUB_VERSION="$(grep -E '^version:' pubspec.yaml | awk '{print $2}')"
+          if [ "$TAG" != "$PUB_VERSION" ]; then
+            echo "Tag v$TAG does not match pubspec.yaml version $PUB_VERSION" >&2
+            exit 1
+          fi
+
       - name: Validate package
         run: |
           dart pub publish --dry-run
-          dart analyze
+          dart analyze --fatal-infos
+          dart test
 
       - name: Publish
         run: dart pub publish --force
