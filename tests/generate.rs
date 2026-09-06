@@ -165,6 +165,10 @@ fn kitchen_sink_specifics() {
     assert!(patch.contains("Shape? parent"), "{patch}");
     assert!(!files.contains_key("shape_patch_parent.dart"));
 
+    // Inline enums inside untagged-union variants are plain strings.
+    let hit = &files["search_hit.dart"];
+    assert!(hit.contains("SearchHit.listValue(List<String> value)"));
+    assert!(!hit.contains("(e) => e.toJson()"), "{hit}");
     // Typedef files import what they reference.
     assert!(files["prices.dart"].contains("import 'money.dart';"));
     assert!(files["id_list.dart"].contains("typedef IdList = List<int>;"));
@@ -192,8 +196,19 @@ fn kitchen_sink_specifics() {
     // Form bodies and binary downloads.
     assert!(dio.contains("contentType: Headers.formUrlEncodedContentType"));
     assert!(dio.contains("responseType: ResponseType.bytes"));
-    assert!(http.contains("request.bodyFields ="));
     assert!(http.contains("return response.bodyBytes;"));
+    // Nested objects must serialise to maps (form encoders rely on it).
+    assert!(files["square.dart"].contains("@JsonSerializable(explicitToJson: true)"));
+    // Object-valued query params and form bodies use deepObject bracket keys.
+    assert!(dio.contains("if (created != null) 'created': created.toJson(),"));
+    assert!(http.contains("if (created != null) ..._deepObject('created', created.toJson()),"));
+    assert!(http.contains("request.bodyFields = _formFields(body.toJson() as Map);"));
+    // Array styles: form/explode=false joins, deepObject indexes, default repeats.
+    assert!(dio.contains("'ids': ids.map((e) => e.toString()).toList().join(','),"));
+    assert!(dio.contains("..._deepObject('expand', expand),"));
+    assert!(dio.contains("'tags': tags,"));
+    assert!(dio.contains("static Map<String, String> _deepObject("));
+    assert!(http.contains("static Map<String, String> _deepObject("));
     // Basic auth is base64-encoded; the http client throws a typed exception.
     assert!(http.contains("base64Encode(utf8.encode(_basicAuth))"));
     assert!(http.contains("class KitchenSinkClientException implements Exception"));
@@ -213,6 +228,11 @@ fn swagger_two_is_translated() {
     assert!(files.contains_key("pet_attributes.dart"));
     // basic auth definition is honoured
     assert!(http.contains("base64Encode(utf8.encode(_basic))"));
+    // collectionFormat: multi → exploded form (repeated keys).
+    assert!(
+        http.contains("'status': status.map((e) => '${e.value}').toList(),"),
+        "{http}"
+    );
 }
 
 #[test]

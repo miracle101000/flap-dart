@@ -17,6 +17,8 @@
 - **Response headers** — typed Dart 3 named-record return types for operations with declared response headers
 - **`default:` values** — emitted as Freezed `@Default(...)` annotations
 - **`date-time` format** → `DateTime`; `float`/`double` format → `double`; `binary` format → `List<int>`
+- **Parameter serialization** — OpenAPI `style`/`explode` (`form`, `deepObject`, `spaceDelimited`, `pipeDelimited`) and Swagger `collectionFormat` for query parameters; form-encoded bodies use bracket keys for nested objects
+- **Battle-tested** — the full Stripe OpenAPI document (594 operations, 1,454 schemas) generates, builds with `build_runner`, and analyzes cleanly with both backends
 - **Lenient loading** — inline objects become named classes, root-level enums/primitives are supported, `$ref` parameters/responses/request bodies and path-level parameters resolve, and unsupported constructs degrade to `dynamic` with a warning instead of aborting
 - **Multipart uploads** — `multipart/form-data` request bodies via `FormData` / `MultipartRequest`
 - **Multiple servers** — `servers:` array emitted as a typed `abstract final class FooClientUrls`

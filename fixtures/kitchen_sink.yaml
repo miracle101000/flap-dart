@@ -43,6 +43,32 @@ paths:
           in: cookie
           schema:
             type: string
+        - name: ids
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: integer
+        - name: expand
+          in: query
+          style: deepObject
+          schema:
+            type: array
+            items:
+              type: string
+        - name: created
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              gte:
+                type: integer
+              lte:
+                type: integer
       responses:
         '200':
           description: ok
@@ -158,6 +184,15 @@ paths:
                   type: string
                 password:
                   type: string
+                address:
+                  type: object
+                  properties:
+                    city:
+                      type: string
+                    lines:
+                      type: array
+                      items:
+                        type: string
       responses:
         '200':
           description: token
@@ -315,6 +350,12 @@ components:
         - $ref: '#/components/schemas/Asset'
         - type: string
         - type: integer
+        - type: array
+          items:
+            type: string
+            enum: [card, bank]
+        - type: string
+          enum: ['']
     com.example.Legacy:
       type: object
       properties:

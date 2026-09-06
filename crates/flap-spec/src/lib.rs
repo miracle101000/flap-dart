@@ -18,8 +18,8 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow, bail};
 use flap_ir::{
     Api, ApiKeyLocation, EnumValue, ExtensionValue, Extensions, Field, HttpMethod, OAuth2Flow,
-    OAuth2FlowType, Operation, Parameter, ParameterLocation, RequestBody, Response, Schema,
-    SchemaKind, SecurityScheme, SecuritySchemeKind, TypeRef,
+    OAuth2FlowType, Operation, Parameter, ParameterLocation, ParameterStyle, RequestBody, Response,
+    Schema, SchemaKind, SecurityScheme, SecuritySchemeKind, TypeRef,
 };
 use serde::Deserialize;
 use serde::de;
@@ -300,6 +300,8 @@ pub(crate) struct RawParameter {
     pub(crate) schema: Option<RawSchemaOrRef>,
     /// Alternative to `schema`: a single media type carrying the schema.
     pub(crate) content: Option<BTreeMap<String, RawMediaType>>,
+    pub(crate) style: Option<String>,
+    pub(crate) explode: Option<bool>,
     #[serde(flatten)]
     pub(crate) extensions: BTreeMap<String, serde_yaml::Value>,
 }
@@ -1424,11 +1426,33 @@ fn lower_parameter(
         }
     };
 
+    let default_style = ParameterStyle::default_for(location);
+    let style = match raw.style.as_deref() {
+        None => default_style,
+        Some("form") => ParameterStyle::Form,
+        Some("simple") => ParameterStyle::Simple,
+        Some("deepObject") => ParameterStyle::DeepObject,
+        Some("spaceDelimited") => ParameterStyle::SpaceDelimited,
+        Some("pipeDelimited") => ParameterStyle::PipeDelimited,
+        Some("label") => ParameterStyle::Label,
+        Some("matrix") => ParameterStyle::Matrix,
+        Some(other) => {
+            ctx.warn(format!(
+                "parameter `{}` of `{op_hint}` has unknown style `{other}` — using the default",
+                raw.name
+            ));
+            default_style
+        }
+    };
+    let explode = raw.explode.unwrap_or(style == ParameterStyle::Form);
+
     Ok(Parameter {
         name: raw.name.clone(),
         location,
         type_ref,
         required,
+        style,
+        explode,
         extensions: collect_extensions(&raw.extensions),
     })
 }

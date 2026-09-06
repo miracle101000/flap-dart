@@ -2,7 +2,7 @@ name: flap
 description: >-
   OpenAPI → Dart/Flutter client generator for 3.0, 3.1 and Swagger 2.0.
   Generates Freezed + json_serializable clients, no Java required.
-version: 0.0.5
+version: 0.0.6
 repository: https://github.com/miracle101000/flap-dart
 issue_tracker: https://github.com/miracle101000/flap-dart/issues
 documentation: https://github.com/miracle101000/flap-dart#readme

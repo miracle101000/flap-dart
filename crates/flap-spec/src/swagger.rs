@@ -122,6 +122,9 @@ pub struct SwaggerParameter {
     pub enum_values: Vec<serde_yaml::Value>,
     pub schema: Option<SwaggerSchemaOrRef>,
     pub default: Option<serde_yaml::Value>,
+    /// `csv` (default) | `ssv` | `tsv` | `pipes` | `multi`
+    #[serde(rename = "collectionFormat")]
+    pub collection_format: Option<String>,
     #[serde(flatten)]
     pub extensions: BTreeMap<String, serde_yaml::Value>,
 }
@@ -533,12 +536,26 @@ fn convert_operation(
 }
 
 fn convert_parameter(p: &SwaggerParameter) -> RawParameter {
+    // Swagger 2.0 arrays default to comma-separated (`csv`); OpenAPI 3
+    // defaults to exploded `form`, so translate explicitly for arrays.
+    let (style, explode) = if p.ty.as_deref() == Some("array") {
+        match p.collection_format.as_deref().unwrap_or("csv") {
+            "multi" => (Some("form".to_string()), Some(true)),
+            "ssv" => (Some("spaceDelimited".to_string()), Some(false)),
+            "pipes" => (Some("pipeDelimited".to_string()), Some(false)),
+            _ => (Some("form".to_string()), Some(false)),
+        }
+    } else {
+        (None, None)
+    };
     RawParameter {
         name: p.name.clone(),
         location: p.location.clone(),
         required: p.required,
         schema: Some(RawSchemaOrRef::Inline(Box::new(param_schema(p)))),
         content: None,
+        style,
+        explode,
         extensions: p.extensions.clone(),
     }
 }

@@ -177,12 +177,42 @@ impl fmt::Display for ParameterLocation {
     }
 }
 
+/// OpenAPI parameter serialization `style`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterStyle {
+    /// Default for query and cookie parameters.
+    Form,
+    /// Default for path and header parameters.
+    Simple,
+    /// `name[key]=value` for objects, `name[0]=value` for arrays.
+    DeepObject,
+    SpaceDelimited,
+    PipeDelimited,
+    Label,
+    Matrix,
+}
+
+impl ParameterStyle {
+    /// The default style for a location, per the OpenAPI specification.
+    #[inline]
+    pub fn default_for(location: ParameterLocation) -> Self {
+        match location {
+            ParameterLocation::Query | ParameterLocation::Cookie => Self::Form,
+            ParameterLocation::Path | ParameterLocation::Header => Self::Simple,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Parameter {
     pub name: String,
     pub location: ParameterLocation,
     pub type_ref: TypeRef,
     pub required: bool,
+    /// Serialization style; defaults per location when the spec omits it.
+    pub style: ParameterStyle,
+    /// OpenAPI `explode`; defaults to true for `form`, false otherwise.
+    pub explode: bool,
     pub extensions: Extensions,
 }
 

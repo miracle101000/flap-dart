@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.6
+
+Validated against the full Stripe OpenAPI document (419 paths, 594
+operations, 1,454 schemas → ~11,000 generated files): `build_runner` and
+`dart analyze` are clean for both backends.
+
+### Fixed
+
+* Nested objects are now serialised to maps (`@JsonSerializable(explicitToJson: true)`
+  on every generated factory). Previously form-encoded and multipart bodies with
+  nested objects were sent as `Instance of …`.
+* OpenAPI parameter serialization is honoured: `style` (`form`, `deepObject`,
+  `spaceDelimited`, `pipeDelimited`) and `explode` for query parameters, and
+  Swagger 2.0 `collectionFormat`. Object-valued query parameters and
+  `application/x-www-form-urlencoded` bodies use bracket keys
+  (`created[gte]=1`, `address[city]=…`) as Stripe and most form APIs expect.
+* Untagged unions whose variant is an inline `enum` (Stripe's
+  `enum: ['']` "clear this field" pattern) no longer emit `String.toJson()`;
+  the variant is a plain `String`.
+* Untagged-union deserialisation no longer triggers `unnecessary_cast` warnings.
+
 ## 0.0.5
 
 ### Fixed — generated code

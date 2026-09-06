@@ -13,8 +13,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use flap_ir::{
-    Api, ApiKeyLocation, DefaultValue, EnumValue, Field, Operation, ParameterLocation, RequestBody,
-    Response, Schema, SchemaKind, SecurityScheme, SecuritySchemeKind, TypeRef,
+    Api, ApiKeyLocation, DefaultValue, EnumValue, Field, Operation, ParameterLocation,
+    ParameterStyle, RequestBody, Response, Schema, SchemaKind, SecurityScheme, SecuritySchemeKind,
+    TypeRef,
 };
 
 macro_rules! w {
@@ -623,6 +624,9 @@ impl<'a> Ctx<'a> {
             };
 
         for schema in &api.schemas {
+            if schema.internal {
+                continue;
+            }
             if let SchemaKind::Object { fields } = &schema.kind {
                 for field in fields {
                     if let Some(values) = first_enum(&field.type_ref) {
@@ -1125,6 +1129,25 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Objects and maps: serialised as nested keys (`style: deepObject`)
+    /// when they appear as query parameters.
+    fn is_object_like(&self, t: &TypeRef) -> bool {
+        match t {
+            TypeRef::Map(_) => true,
+            TypeRef::Named(name) => match self.kind(name) {
+                Some(SchemaKind::Object { .. })
+                | Some(SchemaKind::Union { .. })
+                | Some(SchemaKind::UntaggedUnion { .. })
+                | Some(SchemaKind::Map { .. }) => true,
+                Some(SchemaKind::Alias { target }) => {
+                    self.is_object_like(&TypeRef::Named(target.clone()))
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     fn is_binary(&self, t: &TypeRef) -> bool {
         match t {
             TypeRef::Binary => true,
@@ -1163,6 +1186,8 @@ fn first_enum(t: &TypeRef) -> Option<&Vec<EnumValue>> {
 #[derive(Default)]
 struct Needs {
     convert: bool,
+    /// The `_deepObject` / `_formFields` helpers are referenced (http backend).
+    deep_object: bool,
 }
 
 // ── Public entry point: models ────────────────────────────────────────────────
@@ -1824,6 +1849,9 @@ fn emit_freezed_class(ctx: &Ctx, schema: &Schema, class_name: &str, fields: &[Fi
     let plans = plan_fields(ctx, &schema.name, fields, true);
     let custom_to_json = plans.iter().any(|p| p.optional_wrapper.is_some());
     let mut out = String::new();
+    // freezed's documented way to pass json_serializable options is to
+    // annotate the factory constructor; the analyzer flags that target.
+    wl!(out, "// ignore_for_file: invalid_annotation_target");
 
     let mut imports = BTreeSet::new();
     imports.insert("import 'package:freezed_annotation/freezed_annotation.dart';".to_string());
@@ -1873,6 +1901,9 @@ fn emit_freezed_class(ctx: &Ctx, schema: &Schema, class_name: &str, fields: &[Fi
         wl!(out, "  const {class_name}._();");
         wl!(out);
     }
+    // `explicitToJson` makes nested objects serialise to maps, which form
+    // encoders (`_formFields`, Dio) and `jsonEncode` both need.
+    wl!(out, "  @JsonSerializable(explicitToJson: true)");
     if plans.is_empty() {
         wl!(out, "  const factory {class_name}() = _{class_name};");
     } else {
@@ -1920,6 +1951,7 @@ fn emit_freezed_union(
     let snake = to_snake_case(class_name);
     let names = &ctx.union_variant_names[&schema.name];
     let mut out = String::new();
+    wl!(out, "// ignore_for_file: invalid_annotation_target");
 
     // Per variant: rendered constructor-parameter lines. The discriminator
     // property is dropped — freezed writes/reads it through `unionKey`.
@@ -1980,6 +2012,7 @@ fn emit_freezed_union(
         if factory != tag {
             wl!(out, "  @FreezedUnionValue({})", dart_str(tag));
         }
+        wl!(out, "  @JsonSerializable(explicitToJson: true)");
         if lines.is_empty() {
             wl!(
                 out,
@@ -2034,6 +2067,9 @@ fn untagged_variants(ctx: &Ctx, class_name: &str, variants: &[TypeRef]) -> Vec<U
                 },
                 other => other.clone(),
             };
+            // Inline `enum`s in a variant (e.g. Stripe's `enum: ['']` to clear
+            // a field, or `List<enum>`) are exposed as plain wire strings.
+            let inner = strip_inline_enums(inner);
             let dart_type = ctx.dart_type(&inner, None);
             let hint = match &inner {
                 TypeRef::Named(n) => to_camel_case(n),
@@ -2061,6 +2097,16 @@ fn untagged_variants(ctx: &Ctx, class_name: &str, variants: &[TypeRef]) -> Vec<U
         .collect()
 }
 
+/// Replace inline `enum`s (at any depth) with `String`.
+fn strip_inline_enums(t: TypeRef) -> TypeRef {
+    match t {
+        TypeRef::Enum(_) => TypeRef::String,
+        TypeRef::Array(inner) => TypeRef::Array(Box::new(strip_inline_enums(*inner))),
+        TypeRef::Map(inner) => TypeRef::Map(Box::new(strip_inline_enums(*inner))),
+        other => other,
+    }
+}
+
 /// `(type test, converted expression)` for parsing a JSON value into a
 /// primitive-ish untagged variant. `None` for object-like variants.
 fn primitive_probe(ctx: &Ctx, t: &TypeRef) -> Option<(String, String)> {
@@ -2078,22 +2124,19 @@ fn primitive_probe(ctx: &Ctx, t: &TypeRef) -> Option<(String, String)> {
         )),
         TypeRef::Any => Some(("true".into(), "json".into())),
         TypeRef::Binary | TypeRef::Array(_) => Some((
-            "json is List<dynamic>".into(),
+            "json is Iterable".into(),
             ctx.deserialize_expr(t, "json", None),
         )),
-        TypeRef::Map(_) => Some((
-            "json is Map<String, dynamic>".into(),
-            ctx.deserialize_expr(t, "json", None),
-        )),
+        TypeRef::Map(_) => Some(("json is Map".into(), ctx.deserialize_expr(t, "json", None))),
         TypeRef::Enum(_) => Some(("json is String".into(), "json".into())),
         TypeRef::Named(name) => match ctx.kind(name) {
             Some(SchemaKind::Array { .. })
             | Some(SchemaKind::Map { .. })
             | Some(SchemaKind::Primitive { .. }) => {
                 let probe = if matches!(ctx.kind(name), Some(SchemaKind::Array { .. })) {
-                    "json is List<dynamic>"
+                    "json is Iterable"
                 } else if matches!(ctx.kind(name), Some(SchemaKind::Map { .. })) {
-                    "json is Map<String, dynamic>"
+                    "json is Map"
                 } else {
                     "true"
                 };
@@ -2399,6 +2442,8 @@ struct ParamPlan<'o> {
     /// Non-null Dart type.
     dart_type: String,
     required: bool,
+    style: ParameterStyle,
+    explode: bool,
 }
 
 struct BodyPlan<'o> {
@@ -2484,6 +2529,8 @@ fn plan_method<'o>(
                 enum_name: enum_name.clone(),
                 dart_type: ctx.dart_type(&p.type_ref, enum_name.as_deref()),
                 required: p.required,
+                style: p.style,
+                explode: p.explode,
             }
         })
         .collect();
@@ -2724,14 +2771,17 @@ fn emit_signature_params(ctx: &Ctx, out: &mut String, plan: &MethodPlan) {
     }
 }
 
-/// `final queryParameters = <String, dynamic>{...};` — values are `String`
-/// or `List<String>`. Returns false when there are no query params at all.
+/// `final queryParameters = <String, dynamic>{...};` — scalar values are
+/// `String`, arrays `List<String>` (or joined per `style`/`explode`), and
+/// object-valued parameters follow OpenAPI `style: deepObject` /
+/// `form`. Returns false when there are no query params at all.
 fn emit_query_map(
     ctx: &Ctx,
     out: &mut String,
     plan: &MethodPlan,
     needs: &mut Needs,
     extra_entries: &[String],
+    backend: ClientBackend,
 ) -> bool {
     let qs: Vec<&ParamPlan> = plan
         .params
@@ -2746,20 +2796,59 @@ fn emit_query_map(
         wl!(out, "      {e}");
     }
     for p in &qs {
-        let key = dart_str(&p.spec_name);
-        if p.required {
-            wl!(
-                out,
-                "      {key}: {},",
-                ctx.wire_value_expr(p.type_ref, &p.dart_name, p.enum_name.as_deref(), needs)
-            );
-        } else {
-            let v = ctx.wire_value_expr(p.type_ref, &p.dart_name, p.enum_name.as_deref(), needs);
-            wl!(out, "      if ({} != null) {key}: {v},", p.dart_name);
-        }
+        wl!(out, "      {}", query_entry(ctx, p, backend, needs));
     }
     wl!(out, "    }};");
     true
+}
+
+/// One `key: value,` (or `...spread,`) entry of the query map for `p`,
+/// applying the parameter's serialization style.
+fn query_entry(ctx: &Ctx, p: &ParamPlan, backend: ClientBackend, needs: &mut Needs) -> String {
+    let key = dart_str(&p.spec_name);
+    let name = &p.dart_name;
+    let guard = if p.required {
+        String::new()
+    } else {
+        format!("if ({name} != null) ")
+    };
+    if ctx.is_object_like(p.type_ref) {
+        let json = ctx.to_json_expr(p.type_ref, name);
+        return match (p.style, p.explode) {
+            (ParameterStyle::DeepObject, _) => match backend {
+                // Dio bracket-encodes nested maps itself.
+                ClientBackend::Dio => format!("{guard}{key}: {json},"),
+                ClientBackend::Http => {
+                    needs.deep_object = true;
+                    format!("{guard}..._deepObject({key}, {json}),")
+                }
+            },
+            // form + explode=false: `key=a,1,b,2`
+            (_, false) => format!(
+                "{guard}{key}: ({json} as Map).entries.expand((e) => [e.key, '${{e.value}}']).join(','),"
+            ),
+            // form + explode (the OpenAPI default): top-level keys `a=1&b=2`
+            _ => {
+                needs.deep_object = true;
+                format!("{guard}..._deepObject('', {json}),")
+            }
+        };
+    }
+    if ctx.is_array_like(p.type_ref) {
+        let list = ctx.wire_value_expr(p.type_ref, name, p.enum_name.as_deref(), needs);
+        return match (p.style, p.explode) {
+            (ParameterStyle::DeepObject, _) => {
+                needs.deep_object = true;
+                format!("{guard}..._deepObject({key}, {list}),")
+            }
+            (ParameterStyle::SpaceDelimited, _) => format!("{guard}{key}: {list}.join(' '),"),
+            (ParameterStyle::PipeDelimited, _) => format!("{guard}{key}: {list}.join('|'),"),
+            (_, false) => format!("{guard}{key}: {list}.join(','),"),
+            _ => format!("{guard}{key}: {list},"),
+        };
+    }
+    let v = ctx.wire_value_expr(p.type_ref, name, p.enum_name.as_deref(), needs);
+    format!("{guard}{key}: {v},")
 }
 
 /// `final headers = <String, String>{...};` including cookie assembly.
@@ -2833,6 +2922,58 @@ fn emit_header_map(
     }
     wl!(out, "    }};");
     true
+}
+
+/// `_deepObject` / `_formFields`: flatten nested maps and lists into
+/// bracket-style keys. Emitted only when a method needs them.
+fn emit_deep_object_helpers(ctx: &Ctx, out: &mut String, with_form_fields: bool) {
+    wl!(out);
+    wl!(
+        out,
+        "  /// Flattens nested maps/lists into `a[b][0]=v` keys"
+    );
+    wl!(
+        out,
+        "  /// (OpenAPI `style: deepObject`, as used by form bodies)."
+    );
+    wl!(out, "  static Map<String, String> _deepObject(");
+    wl!(out, "    String key,");
+    wl!(out, "    {} value, [", ctx.nullable("Object"));
+    wl!(out, "    {} into,", ctx.nullable("Map<String, String>"));
+    wl!(out, "  ]) {{");
+    wl!(out, "    final out = into ?? <String, String>{{}};");
+    wl!(out, "    if (value == null) return out;");
+    wl!(out, "    if (value is Map) {{");
+    wl!(out, "      value.forEach(");
+    wl!(
+        out,
+        "        (k, v) => _deepObject(key.isEmpty ? '$k' : '$key[$k]', v, out),"
+    );
+    wl!(out, "      );");
+    wl!(out, "    }} else if (value is Iterable) {{");
+    wl!(out, "      var i = 0;");
+    wl!(out, "      for (final v in value) {{");
+    wl!(out, "        _deepObject('$key[${{i++}}]', v, out);");
+    wl!(out, "      }}");
+    wl!(out, "    }} else {{");
+    wl!(out, "      out[key] = value.toString();");
+    wl!(out, "    }}");
+    wl!(out, "    return out;");
+    wl!(out, "  }}");
+    if with_form_fields {
+        wl!(out);
+        wl!(
+            out,
+            "  static Map<String, String> _formFields(Map<dynamic, dynamic> map) {{"
+        );
+        wl!(out, "    final out = <String, String>{{}};");
+        wl!(
+            out,
+            "    map.forEach((k, v) => _deepObject(k.toString(), v, out));"
+        );
+        wl!(out, "    return out;");
+        wl!(out, "  }}");
+    }
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
@@ -3119,6 +3260,9 @@ fn emit_client_dio(ctx: &Ctx, class_name: &str) -> String {
         "  /// The underlying [Dio] instance, for advanced configuration."
     );
     wl!(out, "  Dio get dio => _dio;");
+    if needs.deep_object {
+        emit_deep_object_helpers(ctx, &mut out, false);
+    }
     out.push_str(&body);
     wl!(out, "}}");
     out
@@ -3190,7 +3334,7 @@ fn emit_method_dio(ctx: &Ctx, out: &mut String, mut plan: MethodPlan, needs: &mu
     wl!(out, "  }}) async {{");
 
     let mut local_needs = std::mem::take(&mut plan.needs);
-    let has_query = emit_query_map(ctx, out, &plan, &mut local_needs, &[]);
+    let has_query = emit_query_map(ctx, out, &plan, &mut local_needs, &[], ClientBackend::Dio);
     let has_headers = emit_header_map(ctx, out, &plan, &mut local_needs, &[], &[]);
 
     // Body
@@ -3309,6 +3453,7 @@ fn emit_method_dio(ctx: &Ctx, out: &mut String, mut plan: MethodPlan, needs: &mu
     emit_return_statement(ctx, out, &plan, "response.data", false);
     wl!(out, "  }}");
     needs.convert |= local_needs.convert;
+    needs.deep_object |= local_needs.deep_object;
 }
 
 // ── HTTP client emitter ───────────────────────────────────────────────────────
@@ -3347,7 +3492,10 @@ fn emit_client_http(ctx: &Ctx, class_name: &str) -> String {
         })
         .collect();
 
-    let mut needs = Needs { convert: true };
+    let mut needs = Needs {
+        convert: true,
+        ..Needs::default()
+    };
     let mut body = String::new();
     for (i, op) in ctx.api.operations.iter().enumerate() {
         let plan = plan_method(ctx, i, op, ClientBackend::Http);
@@ -3505,6 +3653,9 @@ fn emit_client_http(ctx: &Ctx, class_name: &str) -> String {
     wl!(out, "      ...queryParameters,");
     wl!(out, "    }});");
     wl!(out, "  }}");
+    if needs.deep_object {
+        emit_deep_object_helpers(ctx, &mut out, true);
+    }
     out.push_str(&body);
     wl!(out, "}}");
     wl!(out);
@@ -3568,7 +3719,14 @@ fn emit_method_http(
     } else {
         vec![]
     };
-    let has_query = emit_query_map(ctx, out, &plan, &mut local_needs, &auth_query_entry);
+    let has_query = emit_query_map(
+        ctx,
+        out,
+        &plan,
+        &mut local_needs,
+        &auth_query_entry,
+        ClientBackend::Http,
+    );
     let auth_header_entry: Vec<String> = if has_auth_headers {
         vec!["..._authHeaders,".to_string()]
     } else {
@@ -3660,14 +3818,10 @@ fn emit_method_http(
             }
             BodyKind::FormUrlEncoded => {
                 let json = body_json_expr(ctx, b).replace("body", &body_var);
+                local_needs.deep_object = true;
                 wl!(
                     out,
-                    "{indent}final fields = Map<String, dynamic>.from({json} as Map)"
-                );
-                wl!(out, "{indent}  ..removeWhere((_, v) => v == null);");
-                wl!(
-                    out,
-                    "{indent}request.bodyFields = fields.map((k, v) => MapEntry(k, v is Iterable ? v.join(',') : v.toString()));"
+                    "{indent}request.bodyFields = _formFields({json} as Map);"
                 );
             }
             BodyKind::Binary => {
@@ -3744,6 +3898,7 @@ fn emit_method_http(
     emit_return_statement(ctx, out, &plan, &data_expr, typed);
     wl!(out, "  }}");
     needs.convert |= local_needs.convert;
+    needs.deep_object |= local_needs.deep_object;
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
