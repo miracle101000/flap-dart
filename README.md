@@ -6,6 +6,32 @@
 
 ---
 
+## Table of contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Supported platforms](#supported-platforms)
+  - [Build from source](#build-from-source)
+- [Quick start](#quick-start)
+- [Output layout](#output-layout)
+- [Generated client](#generated-client)
+  - [Dio (default)](#dio-default)
+  - [http](#http)
+- [PATCH / tri-state fields](#patch--tri-state-fields)
+- [Schema mapping](#schema-mapping)
+  - [Type mapping](#type-mapping)
+  - [Template overrides](#template-overrides)
+- [Programmatic use](#programmatic-use)
+- [Project structure](#project-structure)
+  - [Crate responsibilities](#crate-responsibilities)
+- [CLI reference](#cli-reference)
+- [Dependencies](#dependencies)
+- [CI / release workflow](#ci--release-workflow)
+- [License](#license)
+- [Author](#author)
+
+---
+
 ## Features
 
 - **Spec support** — OpenAPI 3.0, OpenAPI 3.1, and Swagger 2.0 (YAML or JSON, local file or remote URL)
@@ -336,6 +362,7 @@ The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
 ---
 
 ## Author
