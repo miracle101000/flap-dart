@@ -336,3 +336,8 @@ The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+---
+
+## Author
+
+Miracle Okolo — [LinkedIn](https://www.linkedin.com/in/miracle-okolo-bb2133183/) · [GitHub](https://github.com/miracle101000)
