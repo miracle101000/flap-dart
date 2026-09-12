@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.7
+
+* Documentation only: README gains a table of contents and an author section.
+  No generator changes; output is identical to 0.0.6.
+
 ## 0.0.6
 
 Validated against the full Stripe OpenAPI document (419 paths, 594
